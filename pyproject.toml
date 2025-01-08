@@ -6,7 +6,6 @@ readme = "README.md"
 authors = [
     { name = "Brennan Draves", email = "dravesbrennan@gmail.com" }
 ]
-license = "MIT"
 dependencies = [
     "django>=3.2",
     "typing-extensions>=4.0.0",
