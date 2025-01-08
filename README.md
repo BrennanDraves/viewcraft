@@ -18,6 +18,16 @@ A modern, type-safe approach to composable Django class-based views.
 pip install viewcraft
 ```
 
+Add to your installed apps in settings.py:
+
+```python
+INSTALLED_APPS = [
+    ...
+    'viewcraft',
+]
+```
+]
+
 ## Quick Start
 
 Sort your list of model objects without having to write your own queries or sort URLs:
