@@ -17,6 +17,10 @@ dev = [
     "mypy>=1.0.0",
     "django-stubs>=4.2.0",
     "ruff>=0.1.0",
+    "factory-boy>=3.3.0",    # For test factories
+    "faker>=22.0.0",         # Used by both factory-boy and our management command
+    "pytest>=7.4.0",
+    "pytest-django>=4.7.0",
 ]
 
 [project.urls]
@@ -32,13 +36,22 @@ warn_redundant_casts = true
 warn_unused_ignores = true
 warn_no_return = true
 warn_unreachable = true
+# Exclude manage.py, demo/, and demo_app/.
+exclude = [
+    "demo/",
+    "demo_app/",
+    "manage.py",
+]
 plugins = ["mypy_django_plugin.main"]
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+target-version = "py310"
 exclude = [
     "*/migrations/*.py",
+    "demo/",
+    "demo_app/",
+    "manage.py",
 ]
 
 [tool.ruff.lint]
