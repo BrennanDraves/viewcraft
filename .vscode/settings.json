@@ -1,0 +1,15 @@
+{
+    "files.exclude": {
+        ".env/": true,
+        ".mypy_cache/": true,
+        ".ruff_cache/": true,
+        ".vscode/": true,
+        "**/__pycache__/": true,
+    },
+    "files.insertFinalNewline": true,
+    "files.trimTrailingWhitespace": true,
+    "ruff.lint.run": "onSave",
+    "ruff.showNotifications": "onError",
+    "mypy.enabled": true,
+    "mypy.runUsingActiveInterpreter": true
+}
