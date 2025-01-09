@@ -11,5 +11,6 @@
     "ruff.lint.run": "onSave",
     "ruff.showNotifications": "onError",
     "mypy.enabled": true,
-    "mypy.runUsingActiveInterpreter": true
+    "mypy.runUsingActiveInterpreter": true,
+    "python.linting.mypyArgs": ["--config-file", "pyproject.toml"],
 }
