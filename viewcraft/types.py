@@ -1,9 +1,19 @@
-from typing import Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 from django.views import View
+from typing_extensions import TypeVarTuple
+
+if TYPE_CHECKING:
+    from .components.hooks import HookMetadata
 
 ViewT = TypeVar("ViewT", bound=View)
 ModelT = TypeVar("ModelT")
+Ts = TypeVarTuple('Ts')
+
+class HookedCallable(Protocol):
+    """Protocol for methods that have been decorated with hooks."""
+    _hooks: list["HookMetadata"]
+    def __call__(self, *args: tuple[*Ts], **kwargs: Any) -> Any: ...
 
 class ComponentProtocol(Protocol[ViewT]):
     """Protocol defining the interface that all components must implement."""
