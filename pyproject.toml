@@ -46,7 +46,7 @@ warn_return_any = true
 plugins = ["mypy_django_plugin.main"]
 
 [[tool.mypy.overrides]]
-module = ["demo.*", "demo_app.*"]
+module = ["demo.*", "demo_app.*", "tests.*"]
 ignore_errors = true
 
 [[tool.mypy.overrides]]
@@ -60,6 +60,7 @@ exclude = [
     "*/migrations/*.py",
     "demo/",
     "demo_app/",
+    "tests/",
     "manage.py",
 ]
 
@@ -78,3 +79,11 @@ ignore = ["D203", "D212"]  # Ignore some docstring conflicts
 [tool.django-stubs]
 django_settings_module = "demo.settings"
 strict_settings = true
+
+# Pytest
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "demo.settings"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:factory.*:",  # Ignore factory-boy deprecation warnings
+]
