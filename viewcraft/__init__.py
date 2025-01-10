@@ -5,7 +5,3 @@ if TYPE_CHECKING:
 
 # Clean namespace
 del TYPE_CHECKING
-
-
-__all__ = [
-]
