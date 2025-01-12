@@ -25,6 +25,7 @@ def basic_view(rf, basic_view_class):
     """An instantiated view for testing."""
     request = rf.get('/')
     view = basic_view_class()
+    view.setup(request, args=[], kwargs={})  # Call setup explicitly
     view.request = request
     view.args = []
     view.kwargs = {}

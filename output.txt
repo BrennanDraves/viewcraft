@@ -1,0 +1,12 @@
+============================= test session starts =============================
+platform win32 -- Python 3.11.9, pytest-8.3.4, pluggy-1.5.0
+django: version: 5.1.4, settings: demo.settings (from ini)
+rootdir: C:\Users\drave\OneDrive\Documents\!personal\Programming\viewcraft
+configfile: pyproject.toml
+testpaths: tests
+plugins: Faker-33.3.0, django-4.9.0
+collected 1 item
+
+tests\test_components.py .                                               [100%]
+
+============================== 1 passed in 1.78s ==============================
