@@ -1,8 +1,12 @@
 import pytest
 from django.db.models import QuerySet
 from django.http import HttpResponse
-from django.views.generic import View, TemplateView
+from django.views.generic import View, TemplateView, CreateView, DetailView, UpdateView
 from viewcraft import Component, ComponentConfig, ComponentMixin, HookMethod
+
+from .factories import BlogPostFactory
+from demo_app.models import BlogPost
+
 
 class SimpleFilterComponent(Component):
     """A very simple component that just filters blog posts by status."""
@@ -324,3 +328,117 @@ def test_component_inheritance(rf, basic_view_class):
     view = ChildView()
     view._do_setup(rf.get('/'))
     assert len(view._initialized_components) == len(ChildView.components)
+
+def test_component_config_validation():
+    """Test that component configs validate their parameters."""
+    class ValidatedConfig(ComponentConfig):
+        def __init__(self, required_param: str):
+            self.required_param = required_param
+
+        def build_component(self, view):
+            if not self.required_param:
+                raise ValueError("required_param cannot be empty")
+            return SimpleFilterComponent(view)
+
+    with pytest.raises(ValueError):
+        ValidatedConfig("").build_component(None)
+
+def test_component_config_inheritance():
+    """Test that component configs can be inherited and extended."""
+    class BaseConfig(ComponentConfig):
+        def __init__(self, base_param: str):
+            self.base_param = base_param
+
+    class ExtendedConfig(BaseConfig):
+        def build_component(self, view):
+            assert self.base_param  # Verify inheritance
+            return SimpleFilterComponent(view)
+
+    config = ExtendedConfig("test")
+    assert config.base_param == "test"
+
+def test_all_hook_methods_called(rf, basic_view_class):
+    """Test that all defined hook methods are properly called."""
+    hook_calls = []
+
+    class AllHooksComponent(Component):
+        def pre_get(self): hook_calls.append('pre_get')
+        def process_get(self, result):
+            hook_calls.append('process_get')
+            return result
+        def post_get(self): hook_calls.append('post_get')
+        def pre_get_queryset(self): hook_calls.append('pre_queryset')
+        def process_get_queryset(self, qs):
+            hook_calls.append('process_queryset')
+            return qs
+        def post_get_queryset(self): hook_calls.append('post_queryset')
+
+    class AllHooksConfig(ComponentConfig):
+        def build_component(self, view):
+            return AllHooksComponent(view)
+
+    basic_view_class.components = [AllHooksConfig()]
+    view = basic_view_class()
+    view.setup(rf.get('/'))
+    view.get(view.request)
+
+    expected_calls = [
+        'pre_get', 'pre_queryset', 'process_queryset',
+        'post_queryset', 'process_get', 'post_get'
+    ]
+    assert hook_calls == expected_calls
+
+def test_hook_error_propagation(rf, basic_view_class):
+    """Test that errors in hooks are properly propagated."""
+
+    class ErrorInPreHookComponent(Component):
+        def pre_get_queryset(self):
+            raise ValueError("Pre hook error")
+
+    class ErrorInProcessHookComponent(Component):
+        def process_get_queryset(self, qs):
+            raise ValueError("Process hook error")
+
+    class ErrorInPostHookComponent(Component):
+        def post_get_queryset(self):
+            raise ValueError("Post hook error")
+
+    # Create corresponding configs
+    class ErrorInPreConfig(ComponentConfig):
+        def build_component(self, view):
+            return ErrorInPreHookComponent(view)
+
+    class ErrorInProcessConfig(ComponentConfig):
+        def build_component(self, view):
+            return ErrorInProcessHookComponent(view)
+
+    class ErrorInPostConfig(ComponentConfig):
+        def build_component(self, view):
+            return ErrorInPostHookComponent(view)
+
+    # Test each type of hook error
+    for config_class in [ErrorInPreConfig, ErrorInProcessConfig, ErrorInPostConfig]:
+        basic_view_class.components = [config_class()]
+        view = basic_view_class()
+        view.setup(rf.get('/'))
+
+        with pytest.raises(ValueError):
+            view.get_queryset()
+
+def test_integration_with_common_views():
+    """Test integration with common Django view classes."""
+    class CreateViewWithComponents(ComponentMixin, CreateView):
+        model = BlogPost
+        fields = ['title', 'body']
+
+    class DetailViewWithComponents(ComponentMixin, DetailView):
+        model = BlogPost
+
+    class UpdateViewWithComponents(ComponentMixin, UpdateView):
+        model = BlogPost
+        fields = ['title']
+
+    # Test each view type works with components
+    for view_class in [CreateViewWithComponents, DetailViewWithComponents, UpdateViewWithComponents]:
+        assert hasattr(view_class, 'components')
+        assert hasattr(view_class, '_do_setup')
