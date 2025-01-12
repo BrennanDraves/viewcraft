@@ -85,8 +85,15 @@ class ComponentMixin(Generic[ViewT]):
 
     def _call_parent_method(self, hook: HookMethod, *args: Any, **kwargs: Any) -> Any:
         """Call the parent class's implementation of a method."""
-        parent_method = getattr(super(), hook.value)  # type: ignore
-        return parent_method(*args, **kwargs)
+        try:
+            parent_method = getattr(super(), hook.value)
+            return parent_method(*args, **kwargs)
+        except AttributeError:
+            # If parent doesn't implement the method, raise NotImplementedError
+            # This matches Django's default behavior
+            raise NotImplementedError(
+                f"Method {hook.value} not implemented on parent class"
+            ) from None
 
     def __getattribute__(self, name: str) -> Any:
         """Intercept method calls to inject hook processing."""
