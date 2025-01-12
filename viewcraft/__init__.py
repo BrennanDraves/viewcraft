@@ -1,11 +1,9 @@
-from typing import TYPE_CHECKING
-
+from .components import Component, ComponentConfig
 from .enums import HookMethod, HookPhase
 
-# Cleanup namespaces
-del TYPE_CHECKING
-
 __all__ = [
+    "Component",
+    "ComponentConfig",
     "HookMethod",
     "HookPhase",
 ]
