@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
-from ..types import ViewT
+from viewcraft.types import ViewT
+
 from .component import Component
 
 

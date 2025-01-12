@@ -1,12 +1,11 @@
 from typing import Callable, Generic
 
 from viewcraft.enums import HookMethod, HookPhase
-
-from ..types import ViewT
+from viewcraft.types import ViewT
 
 
 class Component(Generic[ViewT]):
-    _sequence: int = 0
+    _sequence: int = 0  # Lower is executed earlier.
     _hooks: dict[HookMethod, list[tuple[HookPhase, Callable]]]
     _view: ViewT
 
