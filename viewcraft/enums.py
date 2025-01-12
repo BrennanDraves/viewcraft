@@ -23,9 +23,3 @@ class HookMethod(str, Enum):
 
     def __str__(self) -> str:
         return self.value
-
-
-class HookPhase(Enum):
-    PRE = "pre"
-    AROUND = "around"
-    POST = "post"
