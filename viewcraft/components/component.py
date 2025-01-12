@@ -6,7 +6,7 @@ from viewcraft.types import ViewT
 
 class Component(Generic[ViewT]):
     _sequence: int = 0  # Lower is executed earlier.
-    _hooks: dict[HookMethod, list[tuple[HookPhase, Callable]]]
+    _hooks: dict[HookMethod, dict[HookPhase, Callable]] = {}
     _view: ViewT
 
     def __init__(self, view: ViewT) -> None:
