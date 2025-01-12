@@ -1,7 +1,8 @@
 import pytest
 from django.db.models import QuerySet
-from viewcraft import Component, ComponentConfig
-from viewcraft.enums import HookMethod
+from django.http import HttpResponse
+from django.views.generic import View, TemplateView
+from viewcraft import Component, ComponentConfig, ComponentMixin, HookMethod
 
 class SimpleFilterComponent(Component):
     """A very simple component that just filters blog posts by status."""
@@ -14,37 +15,7 @@ class SimpleFilterConfig(ComponentConfig):
     def build_component(self, view):
         return SimpleFilterComponent(view)
 
-def test_basic_queryset_filtering(db, blog_posts, basic_view_class, rf):
-    """Test that a simple component can filter a queryset."""
-    # Set components BEFORE creating the view instance
-    basic_view_class.components = [SimpleFilterConfig()]
 
-    # Create request
-    request = rf.get('/')
-
-    # Create view and trigger initialization
-    view = basic_view_class()
-
-    # Make sure setup runs
-    view._do_setup(request)
-
-    # Set request and other attributes
-    view.request = request
-    view.args = []
-    view.kwargs = {}
-
-    # Get the queryset
-    queryset = view.get_queryset()
-
-    # Check that we got some posts
-    assert queryset.exists(), "Queryset is empty!"
-
-    # Check each post's status
-    for post in queryset:
-        assert post.status == 'published', f"Found non-published post with status: {post.status}"
-
-
-# Test Components
 class OrderedComponent(Component):
     """Component that logs its execution order."""
     def __init__(self, view, sequence: int, execution_log: list):
@@ -105,6 +76,35 @@ class MultiHookConfig(ComponentConfig):
         return MultiHookComponent(view, self.hook_log)
 
 # Tests
+def test_basic_queryset_filtering(db, blog_posts, basic_view_class, rf):
+    """Test that a simple component can filter a queryset."""
+    # Set components BEFORE creating the view instance
+    basic_view_class.components = [SimpleFilterConfig()]
+
+    # Create request
+    request = rf.get('/')
+
+    # Create view and trigger initialization
+    view = basic_view_class()
+
+    # Make sure setup runs
+    view._do_setup(request)
+
+    # Set request and other attributes
+    view.request = request
+    view.args = []
+    view.kwargs = {}
+
+    # Get the queryset
+    queryset = view.get_queryset()
+
+    # Check that we got some posts
+    assert queryset.exists(), "Queryset is empty!"
+
+    # Check each post's status
+    for post in queryset:
+        assert post.status == 'published', f"Found non-published post with status: {post.status}"
+
 def test_component_execution_order(db, basic_view_class, rf):
     """Test that components are executed in order based on their sequence."""
     execution_log = []
@@ -190,3 +190,137 @@ def test_lazy_component_initialization(db, basic_view_class, rf):
 
     view._do_setup(rf.get('/'))
     assert initialization_count == 1, "Component should be initialized exactly once"
+
+@pytest.fixture
+def component_mixin_view():
+    """A minimal view just using ComponentMixin for testing mixin behavior."""
+    class SimpleView(ComponentMixin, View):
+        def get(self, request, *args, **kwargs):
+            return HttpResponse()
+    return SimpleView
+
+def test_dispatch_runs_setup(rf):
+    """Test that dispatch actually triggers setup."""
+    class TestDispatchView(ComponentMixin, TemplateView):  # Use TemplateView instead of View
+        template_name = "dummy.html"  # Required by TemplateView
+        called_setup = False
+
+        def _do_setup(self, request, *args, **kwargs):
+            self.called_setup = True
+            super()._do_setup(request, *args, **kwargs)
+
+    view = TestDispatchView.as_view()
+    request = rf.get('/')
+    response = view(request)
+    assert response.status_code == 200
+
+def test_multiple_hook_types(rf, basic_view_class, blog_posts):
+    """Test that a component can handle multiple different hook types."""
+    hook_calls = []
+
+    class MultiHookComponent(Component):
+        def pre_get_queryset(self):
+            hook_calls.append('pre_get')
+
+        def process_get_context_data(self, context):
+            hook_calls.append('process_context')
+            return context
+
+        def post_get(self):
+            hook_calls.append('post_get')
+
+    class MultiConfig(ComponentConfig):
+        def build_component(self, view):
+            return MultiHookComponent(view)
+
+    basic_view_class.components = [MultiConfig()]
+
+    # Properly set up the view
+    request = rf.get('/')
+    view = basic_view_class()
+    view.setup(request)  # This sets request and other attributes
+    view.object_list = view.get_queryset()
+
+    # Now trigger the hooks
+    view.get_queryset()
+    view.get_context_data()
+    response = view.get(request)
+
+    assert 'pre_get' in hook_calls
+    assert 'process_context' in hook_calls
+    assert 'post_get' in hook_calls
+
+def test_component_initialization_happens_once(rf, basic_view_class):
+    """Ensure components are only initialized once even with multiple calls."""
+    init_count = 0
+
+    class CountingComponent(Component):
+        def __init__(self, view):
+            nonlocal init_count
+            init_count += 1
+            super().__init__(view)
+
+    class CountingConfig(ComponentConfig):
+        def build_component(self, view):
+            return CountingComponent(view)
+
+    basic_view_class.components = [CountingConfig()]
+    view = basic_view_class()
+
+    # Call setup multiple times
+    request = rf.get('/')
+    view._do_setup(request)
+    view._do_setup(request)
+    view._do_setup(request)
+
+    assert init_count == 1, "Components were initialized multiple times"
+
+def test_hook_data_persistence(rf, basic_view_class):
+    """Test that hook_data persists between different hook calls."""
+    class DataStoringComponent(Component):
+        def pre_get_queryset(self):
+            self._hook_data['pre_called'] = True
+
+        def process_get_queryset(self, queryset):
+            assert self._hook_data.get('pre_called'), "Pre hook data not preserved"
+            return queryset
+
+    class DataConfig(ComponentConfig):
+        def build_component(self, view):
+            return DataStoringComponent(view)
+
+    basic_view_class.components = [DataConfig()]
+    view = basic_view_class()
+    view._do_setup(rf.get('/'))
+    view.get_queryset()
+
+def test_invalid_hook_handling():
+    """Test that trying to use a non-existent hook raises appropriate error."""
+    with pytest.raises(ValueError):
+        HookMethod('not_a_real_hook')
+
+def test_component_error_handling(rf, basic_view_class):
+    """Test that errors in components are properly propagated."""
+    class ErrorComponent(Component):
+        def process_get_queryset(self, queryset):
+            raise ValueError("Test error")
+
+    class ErrorConfig(ComponentConfig):
+        def build_component(self, view):
+            return ErrorComponent(view)
+
+    basic_view_class.components = [ErrorConfig()]
+    view = basic_view_class()
+    view._do_setup(rf.get('/'))
+
+    with pytest.raises(ValueError):
+        view.get_queryset()
+
+def test_component_inheritance(rf, basic_view_class):
+    """Test that inherited component configurations work correctly."""
+    class ChildView(basic_view_class):
+        components = [SimpleFilterConfig()] + basic_view_class.components
+
+    view = ChildView()
+    view._do_setup(rf.get('/'))
+    assert len(view._initialized_components) == len(ChildView.components)
