@@ -4,6 +4,7 @@ from django.http import HttpRequest, HttpResponse
 
 from .components import Component, ComponentConfig
 from .enums import HookMethod
+from .exceptions import ComponentError
 from .types import ViewT
 
 T = TypeVar('T')  # For return type of hook methods
@@ -36,16 +37,19 @@ class ComponentMixin(Generic[ViewT]):
 
     def _initialize_components(self) -> None:
         """Initialize all components from their configs."""
-        view = cast(ViewT, self)
-        self._initialized_components = []
+        try:
+            view = cast(ViewT, self)
+            self._initialized_components = []
 
-        sorted_configs = sorted(
-            self.components,
-            key=lambda c: getattr(c, '_sequence', 0)
-        )
-        for config in sorted_configs:
-            component = config.build_component(view)
-            self._initialized_components.append(component)
+            sorted_configs = sorted(
+                self.components,
+                key=lambda c: getattr(c, '_sequence', 0)
+            )
+            for config in sorted_configs:
+                component = config.build_component(view)
+                self._initialized_components.append(component)
+        except Exception as e:
+            raise ComponentError(f"Failed to initialize components: {str(e)}") from e
 
     def _run_hook_chain(
         self,
