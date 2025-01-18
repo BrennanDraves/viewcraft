@@ -1,7 +1,25 @@
+"""
+Enumerations used throughout the viewcraft package.
+
+Contains definitions for hook method types and other core enumerations used by
+the component system.
+"""
+
 from enum import Enum
 
 
 class HookMethod(str, Enum):
+    """
+    Enumeration of supported hook method types in viewcraft components.
+
+    This enum defines the standard hook points available in the component system.
+    Each value represents a method name that can be hooked into by components,
+    with the hook types being 'pre_', 'process_', and 'post_' variants of these
+    method names.
+
+    Inherits from str to allow for direct string comparison and usage in method
+    name construction.
+    """
     # Setup hooks
     SETUP = "setup"
     GET_QUERYSET = "get_queryset"
