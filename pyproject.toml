@@ -20,6 +20,7 @@ dev = [
     "factory-boy>=3.3.0",    # For test factories
     "faker>=22.0.0",         # Used by both factory-boy and our management command
     "pytest>=7.4.0",
+    "pytest-sugar>=1.0.0",
     "pytest-django>=4.7.0",
 ]
 
