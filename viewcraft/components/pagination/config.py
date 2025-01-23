@@ -1,9 +1,9 @@
 from dataclasses import dataclass
 from typing import Optional
 
-from viewcraft import ComponentConfig
 from viewcraft.types import ViewT
 
+from ..config import ComponentConfig
 from .component import PaginationComponent
 from .exceptions import ConfigurationError
 

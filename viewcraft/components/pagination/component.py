@@ -1,19 +1,21 @@
-from typing import List, Optional
+from typing import TYPE_CHECKING, List, Optional
 
 from django.db.models import QuerySet
 
-from viewcraft import Component, URLMixin
 from viewcraft.exceptions import ViewcraftError
 from viewcraft.types import ViewT
+from viewcraft.utils import URLMixin
 
-from .config import PaginationConfig
+from ..component import Component
 from .exceptions import InvalidPageError
 
+if TYPE_CHECKING:
+    from .config import PaginationConfig
 
 class PaginationComponent(Component[ViewT], URLMixin):
     """Handles pagination of querysets."""
 
-    def __init__(self, view: ViewT, config: PaginationConfig) -> None:
+    def __init__(self, view: ViewT, config: "PaginationConfig") -> None:
         super().__init__(view)
         self.config = config
         self._total_count: Optional[int] = None
