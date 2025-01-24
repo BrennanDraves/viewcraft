@@ -1,5 +1,6 @@
 from typing import TYPE_CHECKING, List, Optional
 
+from django.core.cache import cache
 from django.db.models import QuerySet
 
 from viewcraft.types import ViewT
@@ -21,12 +22,18 @@ class PaginationComponent(Component[ViewT], URLMixin):
         self._current_page: Optional[int] = None
 
     def process_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        self._total_count = queryset.count()
+        cache_key = f"pagination_count_{hash(str(queryset.query))}"
+        self._total_count = cache.get(cache_key)
+
+        if self._total_count is None:
+            self._total_count = queryset.count()
+            cache.set(cache_key, self._total_count, timeout=300)  # 5 min cache
         total_pages = self._get_total_pages()
         page = self._get_page_number()
 
         if page > total_pages:
-            raise InvalidPageError(f"Page {page} does not exist. Last page is {total_pages}.")
+            raise InvalidPageError(f"Page {page} does not exist. Last page is\
+                                   {total_pages}.")
 
         start = (page - 1) * self.config.per_page
         end = start + self.config.per_page
@@ -99,8 +106,16 @@ class PaginationComponent(Component[ViewT], URLMixin):
         urls['last'] = self.get_url_with_params({self.config.page_param: total})
 
         # Previous and next
-        urls['previous'] = self.get_url_with_params({self.config.page_param: current - 1}) if current > 1 else None
-        urls['next'] = self.get_url_with_params({self.config.page_param: current + 1}) if current < total else None
+        urls['previous'] = (
+            self.get_url_with_params({self.config.page_param: current - 1})
+            if current > 1
+            else None
+        )
+        urls['next'] = (
+            self.get_url_with_params({self.config.page_param: current + 1})
+            if current < total
+            else None
+        )
 
         # Numbered pages
         urls['pages'] = {
