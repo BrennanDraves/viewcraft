@@ -1,0 +1,28 @@
+<nav class="pagination" role="navigation" aria-label="pagination">
+    {% with page_obj as page %}
+        <div class="pagination-nav">
+            {% if page.has_previous %}
+                <a href="{{ page.page_urls.first }}" class="pagination-first" aria-label="First page">&laquo;</a>
+                <a href="{{ page.page_urls.previous }}" class="pagination-prev" aria-label="Previous page">&lsaquo;</a>
+            {% endif %}
+
+            {% for page_num, url in page.page_urls.pages.items %}
+                {% if page_num == page.number %}
+                    <span class="pagination-current" aria-current="page">{{ page_num }}</span>
+                {% else %}
+                    <a href="{{ url }}" class="pagination-link">{{ page_num }}</a>
+                {% endif %}
+            {% endfor %}
+
+            {% if page.has_next %}
+                <a href="{{ page.page_urls.next }}" class="pagination-next" aria-label="Next page">&rsaquo;</a>
+                <a href="{{ page.page_urls.last }}" class="pagination-last" aria-label="Last page">&raquo;</a>
+            {% endif %}
+        </div>
+
+        <div class="pagination-info">
+            Page {{ page.number }} of {{ page.total_pages }}
+            ({{ page.total_count }} total items)
+        </div>
+    {% endwith %}
+</nav>
