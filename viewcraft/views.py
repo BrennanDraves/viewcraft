@@ -109,13 +109,11 @@ class ComponentMixin(Generic[ViewT]):
             view = cast(ViewT, self)
             self._initialized_components = []
 
-            sorted_configs = sorted(
-                self.components,
-                key=lambda c: getattr(c, '_sequence', 0)
+            components = [config.build_component(view) for config in self.components]
+            sorted_components = sorted(
+                components, key=lambda c: getattr(c, '_sequence', 0)
             )
-            for config in sorted_configs:
-                component = config.build_component(view)
-                self._initialized_components.append(component)
+            self._initialized_components = sorted_components
         except Exception as e:
             raise ComponentError(f"Failed to initialize components: {str(e)}") from e
 
