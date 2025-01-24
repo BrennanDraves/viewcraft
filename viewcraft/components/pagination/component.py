@@ -2,7 +2,6 @@ from typing import TYPE_CHECKING, List, Optional
 
 from django.db.models import QuerySet
 
-from viewcraft.exceptions import ViewcraftError
 from viewcraft.types import ViewT
 from viewcraft.utils import URLMixin
 
@@ -22,10 +21,13 @@ class PaginationComponent(Component[ViewT], URLMixin):
         self._current_page: Optional[int] = None
 
     def process_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        page = self._get_page_number()
         self._total_count = queryset.count()
-        if page > self._get_total_pages():
-            raise InvalidPageError(f"Page {page} does not exist")
+        total_pages = self._get_total_pages()
+        page = self._get_page_number()
+
+        if page > total_pages:
+            raise InvalidPageError(f"Page {page} does not exist. Last page is {total_pages}.")
+
         start = (page - 1) * self.config.per_page
         end = start + self.config.per_page
         return queryset[start:end]
@@ -50,14 +52,13 @@ class PaginationComponent(Component[ViewT], URLMixin):
         return context
 
     def _get_page_number(self) -> int:
-        if self._current_page is None:
-            try:
-                page = int(self._view.request.GET.get(self.config.page_param, 1))
-                if page < 1:
-                    raise InvalidPageError("Page numbers must be positive")
-                self._current_page = page
-            except ValueError:
-                raise InvalidPageError("Invalid page number") from ViewcraftError
+        try:
+            page = int(self._view.request.GET.get(self.config.page_param, 1))
+            if page < 1:
+                raise InvalidPageError("Page numbers must be positive")
+            self._current_page = page
+        except ValueError:
+            self._current_page = 1
         return self._current_page
 
     def _get_total_pages(self) -> int:
@@ -72,54 +73,39 @@ class PaginationComponent(Component[ViewT], URLMixin):
         """Calculate visible page range centered on current page."""
         current = self._get_page_number()
         total = self._get_total_pages()
-        visible = self.config.visible_pages
+        visible = min(self.config.visible_pages, total)
 
-        # Calculate the range of pages to show
-        half = visible // 2
-        start = max(current - half, 1)
-        end = min(start + visible - 1, total)
+        if visible <= 2:
+            return list(range(1, total + 1))
 
-        # Adjust start if we're near the end
-        if end - start + 1 < visible:
-            start = max(end - visible + 1, 1)
+        # Calculate the middle range
+        left = max(1, current - (visible - 1) // 2)
+        right = min(total, left + visible - 1)
 
-        return list(range(start, end + 1))
+        # Adjust left bound if right bound was limited
+        if right == total:
+            left = max(1, total - visible + 1)
+
+        return list(range(left, right + 1))
 
     def _get_page_urls(self) -> dict:
         """Generate URLs for pagination navigation."""
-        urls = {}
+        urls: dict = {}
         current = self._get_page_number()
         total = self._get_total_pages()
 
-        # First and last
-        urls['first'] = (
-            self.get_url_with_params({self.config.page_param: 1})
-            if current > 1
-            else None
-        )
-        urls['last'] = (
-            self.get_url_with_params({self.config.page_param: total})
-            if current < total
-            else None
-        )
+        # First and last - always provide URLs
+        urls['first'] = self.get_url_with_params({self.config.page_param: 1})
+        urls['last'] = self.get_url_with_params({self.config.page_param: total})
 
         # Previous and next
-        urls['previous'] = (
-            self.get_url_with_params({self.config.page_param: current - 1})
-            if current > 1
-            else None
-        )
-        urls['next'] = (
-            self.get_url_with_params({self.config.page_param: current + 1})
-            if current < total
-            else None
-        )
-
+        urls['previous'] = self.get_url_with_params({self.config.page_param: current - 1}) if current > 1 else None
+        urls['next'] = self.get_url_with_params({self.config.page_param: current + 1}) if current < total else None
 
         # Numbered pages
         urls['pages'] = {
             page: self.get_url_with_params({self.config.page_param: page})
             for page in self._get_page_range()
-        }  # type: ignore
+        }
 
         return urls
