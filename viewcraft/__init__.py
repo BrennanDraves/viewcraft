@@ -1,6 +1,8 @@
 from .components import (
     Component,
     ComponentConfig,
+    FilterComponent,
+    FilterConfig,
     PaginationComponent,
     PaginationConfig,
 )
