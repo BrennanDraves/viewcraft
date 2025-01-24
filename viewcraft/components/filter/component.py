@@ -15,6 +15,8 @@ FilterSpec = Dict[str, List[str]]
 
 
 class FilterComponent(Component[ViewT], URLMixin):
+    _sequence = -100
+
     def __init__(self, view: ViewT, config: "FilterConfig") -> None:
         super().__init__(view)
         self.config = config
