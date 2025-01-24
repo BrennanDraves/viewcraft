@@ -1,0 +1,27 @@
+{% for post in object_list %}
+    <article>
+        <h2>{{ post.title }}</h2>
+        <p>{{ post.body|truncatewords:50 }}</p>
+    </article>
+{% endfor %}
+
+{# Pagination Controls #}
+{% with page_obj as page %}
+    <nav>
+        {% if page.has_previous %}
+            <a href="{{ page.page_urls.previous }}">Previous</a>
+        {% endif %}
+
+        {% for page_num, url in page.page_urls.pages.items %}
+            {% if page_num == page.number %}
+                <span>{{ page_num }}</span>
+            {% else %}
+                <a href="{{ url }}">{{ page_num }}</a>
+            {% endif %}
+        {% endfor %}
+
+        {% if page.has_next %}
+            <a href="{{ page.page_urls.next }}">Next</a>
+        {% endif %}
+    </nav>
+{% endwith %}
