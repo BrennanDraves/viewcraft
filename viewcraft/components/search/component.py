@@ -1,3 +1,4 @@
+import shlex
 from typing import TYPE_CHECKING, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -38,7 +39,6 @@ class SearchComponent(Component[ViewT], URLMixin):
 
         return queryset.filter(q_objects)
 
-
     def _parse_query(self) -> List[Tuple[SearchFieldConfig, str, SearchOperator]]:
         if self._parsed_query is not None:
             return self._parsed_query
@@ -48,52 +48,46 @@ class SearchComponent(Component[ViewT], URLMixin):
             return []
 
         parsed = []
-        # Use proper parsing that respects quotes
-        import shlex
-        try:
-            terms = shlex.split(query_str)
-        except ValueError:
-            return []
-
-        for term in terms:
+        for term in shlex.split(query_str):
             if ':' not in term:
                 continue
 
-            try:
-                parts = term.split(':')
-                field_alias = parts[0].strip()
-                if not field_alias:
-                    continue
-
-                field_config = self._field_map.get(field_alias)
-                if not field_config:
-                    continue
-
-                if len(parts) == 2:
-                    value = parts[1]
-                    operator = SearchOperator.CONTAINS
-                elif len(parts) == 3:
-                    try:
-                        operator = SearchOperator(parts[1])
-                    except ValueError:
-                        continue
-                    value = parts[2]
-                else:
-                    continue
-
-                if operator not in field_config.operators:
-                    continue
-
-                # Validate value type matches field class
-                try:
-                    cleaned_value = field_config.field_class().clean(value)
-                except Exception:
-                    continue
-
-                parsed.append((field_config, cleaned_value, operator))
-
-            except (IndexError, ValueError):
+            parts = term.split(':')
+            if len(parts) not in (2, 3):
                 continue
+
+            field_alias = parts[0].strip()
+            field_config = self._field_map.get(field_alias)
+            if not field_config:
+                continue
+
+            if len(parts) == 2:
+                operator = SearchOperator.CONTAINS
+                value = parts[1]
+            else:
+                try:
+                    operator = SearchOperator(parts[1])
+                    value = parts[2]
+                except ValueError:
+                    continue
+
+            if operator not in field_config.operators:
+                continue
+
+            # Handle IN operator lists
+            if operator == SearchOperator.IN and value.startswith('[') and value.endswith(']'):
+                value = [v.strip() for v in value[1:-1].split(',')]
+
+            # Validate value type
+            try:
+                if isinstance(value, list):
+                    cleaned_value = [field_config.field_class().clean(v) for v in value]
+                else:
+                    cleaned_value = field_config.field_class().clean(value)
+            except Exception:
+                continue
+
+            parsed.append((field_config, cleaned_value, operator))
 
         self._parsed_query = parsed
         return parsed
