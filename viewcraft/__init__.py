@@ -5,6 +5,11 @@ from .components import (
     FilterConfig,
     PaginationComponent,
     PaginationConfig,
+    SearchComponent,
+    SearchConfig,
+    SearchFieldConfig,
+    SearchForm,
+    SearchOperator,
 )
 from .enums import HookMethod
 from .exceptions import ComponentError, ConfigurationError, HookError, ViewcraftError
