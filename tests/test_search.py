@@ -61,15 +61,20 @@ def search_view_class(search_config):
     return TestSearchView
 
 @pytest.fixture
-def blog_posts_for_search(db):
-    """Create blog posts for search testing."""
-    return [
-        BlogPostFactory(title="Python Programming", status="published", view_count=100),
-        BlogPostFactory(title="Django Tutorial", status="published", view_count=200),
-        BlogPostFactory(title="Flask Tutorial", status="draft", view_count=50),
-        BlogPostFactory(title="JavaScript Basics", status="published", view_count=150),
-        BlogPostFactory(title="React Components", status="archived", view_count=75)
-    ]
+def blog_posts_for_search(django_db_blocker):
+    """Create specific blog posts for search testing."""
+    with django_db_blocker.unblock():
+        # Clear existing posts
+        BlogPost.objects.all().delete()
+
+        # Create exactly the posts needed for this test
+        return [
+            BlogPostFactory(title="Python Programming", status="published", view_count=100),
+            BlogPostFactory(title="Django Tutorial", status="published", view_count=200),
+            BlogPostFactory(title="Flask Tutorial", status="draft", view_count=50),
+            BlogPostFactory(title="JavaScript Basics", status="published", view_count=150),
+            BlogPostFactory(title="React Components", status="archived", view_count=75)
+        ]
 
 # Test Configuration Classes
 def test_match_type_enum():
