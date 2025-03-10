@@ -7,9 +7,12 @@ from .components import (
     PaginationConfig,
     SearchComponent,
     SearchConfig,
-    SearchFieldConfig,
-    SearchForm,
-    SearchOperator,
+    SearchConfigError,
+    SearchEncodingError,
+    SearchError,
+    SearchFieldSpec,
+    SearchQueryError,
+    MatchType
 )
 from .enums import HookMethod
 from .exceptions import ComponentError, ConfigurationError, HookError, ViewcraftError

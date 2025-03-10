@@ -3,9 +3,12 @@ from .config import ComponentConfig
 from .filter import FilterComponent, FilterConfig
 from .pagination import PaginationComponent, PaginationConfig
 from .search import (
+    MatchType,
     SearchComponent,
     SearchConfig,
-    SearchFieldConfig,
-    SearchForm,
-    SearchOperator,
+    SearchConfigError,
+    SearchEncodingError,
+    SearchError,
+    SearchFieldSpec,
+    SearchQueryError,
 )

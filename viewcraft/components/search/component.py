@@ -1,151 +1,360 @@
-import shlex
-from typing import TYPE_CHECKING, List, Optional, Tuple
-from urllib.parse import urlencode
+"""
+Search component implementation for viewcraft.
+
+Provides a component for filtering querysets based on user search criteria,
+with support for different match types and field-specific searching.
+"""
+
+import base64
+import json
+from typing import TYPE_CHECKING, Any, Dict, Optional
+from urllib.parse import unquote
 
 from django.db.models import Q, QuerySet
+from django.forms import (
+    CharField,
+    ChoiceField,
+    Form,
+    RadioSelect,
+)
 
+from viewcraft.components import Component
 from viewcraft.types import ViewT
 from viewcraft.utils import URLMixin
 
-from ..component import Component
-from .field import SearchFieldConfig, SearchOperator
-from .form import SearchForm
+from .exceptions import SearchEncodingError
 
 if TYPE_CHECKING:
-    from .config import SearchConfig
+    from .config import SearchConfig, SearchFieldSpec
+
 
 class SearchComponent(Component[ViewT], URLMixin):
-    """Handles complex field-based searching."""
+    """
+    Component for searching and filtering querysets.
+
+    Provides search functionality with support for different match types,
+    field-specific searching, and global search across multiple fields.
+    """
+    # Set sequence to run before other filters
+    _sequence = -100
 
     def __init__(self, view: ViewT, config: "SearchConfig") -> None:
         super().__init__(view)
         self.config = config
-        for field in config.fields:
-            field._view = view
-        self._field_map = {field.alias: field for field in config.fields}
-        self._parsed_query: Optional[
-            List[Tuple[SearchFieldConfig, str, SearchOperator]]
-        ] = None
+        self._search_form: Optional[Form] = None
+        self._search_params: Optional[Dict[str, Any]] = None
 
     def process_get_queryset(self, queryset: QuerySet) -> QuerySet:
-        """Apply search filtering to the queryset."""
-        query = self._parse_query()
-        if not query:
+        """
+        Filter the queryset based on search parameters.
+
+        Applies search filters to the queryset based on the decoded search parameters.
+
+        Args:
+            queryset: The original queryset from the view
+
+        Returns:
+            QuerySet: The filtered queryset
+        """
+        params = self._get_search_params()
+        if not params:
             return queryset
 
-        q_objects = Q()
-        for field, value, operator in query:
-            q_objects &= field.get_query_lookup(value, operator)
+        search_q = Q()
 
-        return queryset.filter(q_objects)
-
-    def _parse_query(self) -> List[Tuple[SearchFieldConfig, str, SearchOperator]]:
-        if self._parsed_query is not None:
-            return self._parsed_query
-
-        query_str = self._view.request.GET.get(self.config.param_name, '')
-        if not query_str or len(query_str) > self.config.max_query_length:
-            return []
-
-        parsed = []
-        for term in shlex.split(query_str):
-            if ':' not in term:
+        # Handle field-specific searches
+        for field_spec in self.config.fields:
+            field_name = field_spec.field_name
+            if field_name not in params:
                 continue
 
-            parts = term.split(':')
-            if len(parts) not in (2, 3):
+            field_params = params[field_name]
+            if not field_params:
                 continue
 
-            field_alias = parts[0].strip()
-            field_config = self._field_map.get(field_alias)
-            if not field_config:
+            # Extract match type and value
+            match_type = field_params.get('match_type')
+            value = field_params.get('value')
+
+            if not match_type or value is None:
                 continue
 
-            if len(parts) == 2:
-                operator = SearchOperator.CONTAINS
-                value = parts[1]
-            else:
-                try:
-                    operator = SearchOperator(parts[1])
-                    value = parts[2]
-                except ValueError:
-                    continue
+            # Create field query
+            field_q = self._create_field_query(field_spec, match_type, value)
+            if field_q:
+                search_q &= field_q
 
-            if operator not in field_config.operators:
-                continue
+        if search_q:
+            queryset = queryset.filter(search_q).distinct()
 
-            # Handle IN operator lists
-            if operator == SearchOperator.IN and value.startswith('[') and value.endswith(']'):
-                value = [v.strip() for v in value[1:-1].split(',')]
+        return queryset
 
-            # Validate value type
-            try:
-                if isinstance(value, list):
-                    cleaned_value = [field_config.field_class().clean(v) for v in value]
-                else:
-                    cleaned_value = field_config.field_class().clean(value)
-            except Exception:
-                continue
+    def process_get_context_data(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Add search form and parameters to the template context.
 
-            parsed.append((field_config, cleaned_value, operator))
+        Args:
+            context: The original context from the view
 
-        self._parsed_query = parsed
-        return parsed
-
-    def get_form(self) -> SearchForm:
-        """Get initialized search form."""
-        initial = {}
-        for field_config, value, operator in self._parse_query():
-            initial[field_config.alias] = value
-            if len(field_config.operators) > 1:
-                initial[f"{field_config.alias}_operator"] = operator.value
-
-        return SearchForm(
-            data=self._view.request.GET if self._view.request.GET else None,
-            component=self,
-            initial=initial
+        Returns:
+            Dict[str, Any]: The updated context
+        """
+        context['search_form'] = self._get_search_form()
+        context['search_params'] = self._get_search_params()
+        context['search_encoded'] = self._view.request.GET.get(
+            self.config.param_name, ''
         )
+        context['search_url'] = self.get_search_url()
 
-    def process_get_context_data(self, context: dict) -> dict:
-        """Add search info and form to template context."""
-        context['search'] = {
-            'fields': {
-                field.alias: {
-                    'display_text': field.display_text,
-                    'operators': [op.value for op in field.operators]
-                }
-                for field in self.config.fields
-            },
-            'active_search': self._parse_query(),
-            'param_name': self.config.param_name,
-            'form': self.get_form()
-        }
         return context
 
-    def get_search_url(self, **updates: str) -> str:
-        """Generate a search URL with updated parameters."""
-        current_params = dict(self._view.request.GET.items())
+    def get_search_url(self, search_params: Optional[Dict[str, Any]] = None) -> str:
+        """
+        Generate a URL with the encoded search parameters.
 
-        # Handle search param updates
-        if updates:
-            current_search = self._view.request.GET.get(self.config.param_name, '')
-            search_parts = {
-                part.split(':')[0]: part
-                for part in current_search.split(',')
-                if ':' in part
-            }
+        Args:
+            search_params: Search parameters to encode (uses current params if None)
 
-            # Update or add new search terms
-            for field, value in updates.items():
-                if value:
-                    search_parts[field] = f"{field}:{value}"
-                else:
-                    search_parts.pop(field, None)
+        Returns:
+            str: URL with encoded search parameters
+        """
+        params = (
+            search_params if search_params is not None
+            else self._get_search_params()
+        )
 
-            new_search = ','.join(search_parts.values())
-            if new_search:
-                current_params[self.config.param_name] = new_search
+        if not params:
+            return self.get_url_with_params({self.config.param_name: None})
+
+        try:
+            encoded = self._encode_search_params(params)
+            return self.get_url_with_params({self.config.param_name: encoded})
+        except Exception as e:
+            raise SearchEncodingError(f"Failed to generate search URL: {str(e)}") from e
+
+    def _get_search_params(self) -> Dict[str, Any]:
+        """
+        Get the decoded search parameters.
+
+        Decodes the search parameters from the query string. If the parameters
+        have already been decoded, returns the cached result.
+
+        Returns:
+            Dict[str, Any]: The decoded search parameters
+        """
+        if self._search_params is not None:
+            return self._search_params
+
+        encoded = self._view.request.GET.get(self.config.param_name, '')
+        if not encoded:
+            self._search_params = {}
+            return {}
+
+        try:
+            self._search_params = self._decode_search_params(encoded)
+            return self._search_params
+        except Exception as e:
+            # Log the error but don't crash
+            import logging
+            logging.error(f"Failed to decode search parameters: {str(e)}")
+            self._search_params = {}
+            return {}
+
+    def _encode_search_params(self, params: Dict[str, Any]) -> str:
+        """
+        Encode search parameters for URL embedding.
+
+        Args:
+            params: Search parameters to encode
+
+        Returns:
+            str: Base64 encoded search parameters
+        """
+        json_data = json.dumps(params)
+        return base64.urlsafe_b64encode(json_data.encode('utf-8')).decode('ascii')
+
+    def _decode_search_params(self, encoded: str) -> Any:
+        """
+        Decode search parameters from URL.
+
+        Args:
+            encoded: Base64 encoded search parameters
+
+        Returns:
+            Dict[str, Any]: Decoded search parameters
+
+        Raises:
+            SearchEncodingError: If decoding fails
+        """
+        try:
+            # URL unquote in case it was URL encoded
+            encoded = unquote(encoded)
+            json_data = base64.urlsafe_b64decode(
+                encoded.encode('ascii')).decode('utf-8'
+            )
+            return json.loads(json_data)
+        except Exception as e:
+            raise SearchEncodingError(
+                f"Failed to decode search parameters: {str(e)}"
+            ) from e
+
+    def _create_field_query(
+        self,
+        field_spec: "SearchFieldSpec",
+        match_type: str,
+        value: Any
+    ) -> Optional[Q]:
+        """
+        Create a Q object for field-specific search.
+
+        Args:
+            field_spec: The field specification
+            match_type: The match type to use
+            value: The search value
+
+        Returns:
+            Optional[Q]: Q object for the search, or None if invalid
+        """
+        from .config import MatchType
+
+        field_name = field_spec.field_name
+
+        # Convert match_type string to enum
+        try:
+            match_enum = MatchType[match_type.upper()]
+        except (KeyError, AttributeError):
+            return None
+
+        # Ensure this match type is allowed for this field
+        if match_enum not in field_spec.match_types:
+            return None
+
+        # Handle case sensitivity
+        case_sensitive = (
+            field_spec.case_sensitive
+            if field_spec.case_sensitive is not None
+            else self.config.case_sensitive
+        )
+
+        # Special handling for BETWEEN
+        if(
+            match_enum == MatchType.BETWEEN
+            and isinstance(value, list)
+            and len(value) >= 2
+        ):
+            min_val, max_val = value[0], value[1]
+            return Q(
+                **{f"{field_name}__gte": min_val}) & Q(**{f"{field_name}__lte": max_val}
+            )
+
+        # Handle IN match type
+        if match_enum == MatchType.IN and isinstance(value, list):
+            return Q(**{f"{field_name}__in": value})
+
+        # Handle ISNULL match type
+        if match_enum == MatchType.ISNULL:
+            return Q(**{f"{field_name}__isnull": bool(value)})
+
+        # Handle text match types with case sensitivity
+        if match_enum in MatchType.text_matches() and not case_sensitive:
+            # Switch to case-insensitive variant if not already
+            if match_enum == MatchType.CONTAINS:
+                match_enum = MatchType.ICONTAINS
+            elif match_enum == MatchType.STARTSWITH:
+                match_enum = MatchType.ISTARTSWITH
+            elif match_enum == MatchType.ENDSWITH:
+                match_enum = MatchType.IENDSWITH
+
+        # Add wildcards for text searches if configured
+        if self.config.auto_wildcards and match_enum == MatchType.CONTAINS:
+            if isinstance(value, str) and '*' not in value:
+                value = f"*{value}*"
+
+        # Create the lookup
+        lookup = f"{field_name}__{match_enum}".lower()
+        return Q(**{lookup: value})
+
+    def _get_search_form(self) -> Form:
+        """
+        Get or create the search form.
+
+        Creates a dynamic form based on the search configuration and current search
+        parameters. If the form has already been created, returns the cached form.
+
+        Returns:
+            Form: The search form
+        """
+        if self._search_form is not None:
+            return self._search_form
+
+        from .config import MatchType
+
+        # Create dynamic form class
+        form_fields: Dict[str, Any] = {}
+
+        for field_spec in self.config.fields:
+            field_name = field_spec.field_name
+
+            # Add match type field
+            match_choices = [(str(mt), str(mt).replace('_', ' ').title())
+                            for mt in field_spec.match_types]
+
+            form_fields[f"{field_name}_match"] = ChoiceField(
+                choices=match_choices,
+                initial=str(field_spec.default_match_type),
+                required=False,
+                widget=RadioSelect(),
+                label=f"{field_spec.label} Match Type"
+            )
+
+            # Add value field based on match types
+            if MatchType.BETWEEN in field_spec.match_types:
+                form_fields[f"{field_name}_min"] = CharField(
+                    required=False,
+                    label=f"{field_spec.label} Min",
+                )
+                form_fields[f"{field_name}_max"] = CharField(
+                    required=False,
+                    label=f"{field_spec.label} Max",
+                )
             else:
-                current_params.pop(self.config.param_name, None)
+                form_fields[field_name] = CharField(
+                    required=False,
+                    label=field_spec.label,
+                )
 
-        return f"{self._view.request.path}?{urlencode(current_params)}"
+        # Create the form class
+        FormClass = type('SearchForm', (Form,), {'base_fields': form_fields})
+
+        # Instantiate the form
+        search_params = self._get_search_params()
+        form_data = {}
+
+        # Populate form data from search params
+        if search_params:
+            # Global search
+            if 'global_search' in search_params:
+                form_data['global'] = search_params['global_search']
+
+            # Field-specific searches
+            for field_spec in self.config.fields:
+                field_name = field_spec.field_name
+                field_params = search_params.get(field_name, {})
+
+                if field_params:
+                    match_type = field_params.get('match_type')
+                    value = field_params.get('value')
+
+                    if match_type:
+                        form_data[f"{field_name}_match"] = match_type
+
+                    if value is not None:
+                        if isinstance(value, list) and len(value) >= 2:
+                            form_data[f"{field_name}_min"] = value[0]
+                            form_data[f"{field_name}_max"] = value[1]
+                        else:
+                            form_data[field_name] = value
+
+        # Create the form instance
+        self._search_form = FormClass(form_data or None)
+        return self._search_form

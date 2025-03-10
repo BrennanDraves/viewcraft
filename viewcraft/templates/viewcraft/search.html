@@ -1,0 +1,237 @@
+{% comment %}
+  Template for rendering the search form.
+
+  This template requires the following context variables:
+  - search_form: The form instance
+  - search_url: The URL for form submission
+  - search_params: The current search parameters (decoded)
+{% endcomment %}
+
+<div class="search-container">
+  <form id="viewcraft-search-form" method="get" action="{{ search_url }}" class="search-form">
+    {% csrf_token %}
+
+    <div class="search-form-content">
+      {% if search_form.global %}
+        <div class="global-search">
+          <label for="id_global">{{ search_form.global.label }}</label>
+          {{ search_form.global }}
+        </div>
+      {% endif %}
+
+      <div class="field-search">
+        <h3>Advanced Search</h3>
+
+        {% for field in search_form %}
+          {% if field.name != 'global' and not field.name|endswith:'_match' and not field.name|endswith:'_min' and not field.name|endswith:'_max' %}
+            <div class="search-field-container">
+              <div class="search-field">
+                <label for="id_{{ field.name }}">{{ field.label }}</label>
+                {{ field }}
+              </div>
+
+              {% with match_field_name=field.name|add:'_match' %}
+                {% if search_form|get_field:match_field_name %}
+                  <div class="search-match-types">
+                    <label>Match Type:</label>
+                    {{ search_form|get_field:match_field_name }}
+                  </div>
+                {% endif %}
+              {% endwith %}
+
+              {% with min_field_name=field.name|add:'_min' max_field_name=field.name|add:'_max' %}
+                {% if search_form|get_field:min_field_name and search_form|get_field:max_field_name %}
+                  <div class="search-range">
+                    <div class="search-range-min">
+                      <label for="id_{{ min_field_name }}">Min</label>
+                      {{ search_form|get_field:min_field_name }}
+                    </div>
+                    <div class="search-range-max">
+                      <label for="id_{{ max_field_name }}">Max</label>
+                      {{ search_form|get_field:max_field_name }}
+                    </div>
+                  </div>
+                {% endif %}
+              {% endwith %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="search-actions">
+      <button type="submit" class="search-submit-btn">Search</button>
+      <button type="button" class="search-reset-btn" onclick="resetSearchForm()">Reset</button>
+    </div>
+  </form>
+</div>
+
+<script>
+  // Process the form submission to encode the search parameters
+  document.addEventListener('DOMContentLoaded', function() {
+    var form = document.getElementById('viewcraft-search-form');
+    if (form) {
+      form.addEventListener('submit', function(e) {
+        e.preventDefault();
+
+        // Build search parameters object
+        var searchParams = {};
+        var formData = new FormData(form);
+
+        // Process global search
+        var globalValue = formData.get('global');
+        if (globalValue) {
+          searchParams.global = globalValue;
+        }
+
+        // Process field-specific searches
+        {% for field in search_form %}
+          {% if field.name != 'global' and not field.name|endswith:'_match' and not field.name|endswith:'_min' and not field.name|endswith:'_max' %}
+            // Check if this is a range field
+            {% with min_field_name=field.name|add:'_min' max_field_name=field.name|add:'_max' %}
+              {% if search_form|get_field:min_field_name and search_form|get_field:max_field_name %}
+                var minValue = formData.get('{{ min_field_name }}');
+                var maxValue = formData.get('{{ max_field_name }}');
+                var matchType = formData.get('{{ field.name }}_match') || 'between';
+
+                if (minValue || maxValue) {
+                  searchParams['{{ field.name }}'] = {
+                    match_type: matchType,
+                    value: [minValue, maxValue]
+                  };
+                }
+              {% else %}
+                var fieldValue = formData.get('{{ field.name }}');
+                var matchType = formData.get('{{ field.name }}_match');
+
+                if (fieldValue && matchType) {
+                  searchParams['{{ field.name }}'] = {
+                    match_type: matchType,
+                    value: fieldValue
+                  };
+                }
+              {% endif %}
+            {% endwith %}
+          {% endif %}
+        {% endfor %}
+
+        // Encode the search parameters
+        var jsonData = JSON.stringify(searchParams);
+        var encodedData = btoa(jsonData);
+
+        // Redirect to the search URL
+        window.location.href = '{{ search_url }}?q=' + encodeURIComponent(encodedData);
+      });
+    }
+  });
+
+  // Reset the search form
+  function resetSearchForm() {
+    window.location.href = '{{ search_url|split:"?"|first }}';
+  }
+</script>
+
+<style>
+  .search-container {
+    margin-bottom: 20px;
+    padding: 15px;
+    background-color: #f9f9f9;
+    border-radius: 5px;
+    border: 1px solid #e0e0e0;
+  }
+
+  .search-form {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+
+  .global-search {
+    margin-bottom: 15px;
+  }
+
+  .global-search input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+
+  .field-search {
+    border-top: 1px solid #e0e0e0;
+    padding-top: 15px;
+  }
+
+  .field-search h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    font-size: 1.1em;
+  }
+
+  .search-field-container {
+    margin-bottom: 15px;
+    padding: 10px;
+    background-color: #f0f0f0;
+    border-radius: 4px;
+  }
+
+  .search-field {
+    margin-bottom: 10px;
+  }
+
+  .search-field label {
+    display: block;
+    margin-bottom: 5px;
+    font-weight: bold;
+  }
+
+  .search-field input {
+    width: 100%;
+    padding: 8px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+  }
+
+  .search-match-types {
+    margin-top: 10px;
+  }
+
+  .search-match-types ul {
+    list-style: none;
+    padding: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+  }
+
+  .search-match-types li {
+    margin-right: 10px;
+  }
+
+  .search-range {
+    display: flex;
+    gap: 10px;
+  }
+
+  .search-range-min,
+  .search-range-max {
+    flex: 1;
+  }
+
+  .search-actions {
+    display: flex;
+    gap: 10px;
+  }
+
+  .search-submit-btn,
+  .search-reset-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+
+  .search-submit-btn {
+    background-color: #4CAF50;
+    color: white;
+  }

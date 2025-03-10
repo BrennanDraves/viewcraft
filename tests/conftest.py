@@ -8,16 +8,9 @@ from .factories import BlogPostFactory, UserFactory
 def user():
     return UserFactory()
 
-@pytest.fixture(scope="session")
-def blog_posts(django_db_setup, django_db_blocker):
-    with django_db_blocker.unblock():
-        posts = [BlogPostFactory() for _ in range(5)]
-        return posts
-
-@pytest.fixture(autouse=True)
-def _enable_db(db):
-    """Enable DB access for all tests."""
-    pass
+@pytest.fixture
+def blog_posts(db):
+    return [BlogPostFactory() for _ in range(5)]
 
 @pytest.fixture
 def basic_view_class():
