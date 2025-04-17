@@ -1,46 +1,17 @@
 {% load static %}
-<div class="search-section">
-    <h3>Search Posts</h3>
-    <form method="get" action="" id="search-form">
-        {% for field in search.form %}
-            <div class="form-field">
-                {{ field.label_tag }}
+
+<div class="search">
+    <h3>Search:</h3>
+    <form method="get" action="">
+        {% for field in search_form %}
+            <div class="form-group">
+                <label for="{{ field.id_for_label }}">{{ field.label }}: </label>
                 {{ field }}
-                {% if field.errors %}
-                    <div class="field-errors">{{ field.errors }}</div>
-                {% endif %}
             </div>
         {% endfor %}
-        <input type="submit" value="Search">
+        <button type="submit">Search</button>
     </form>
 </div>
-
-<script>
-document.getElementById('search-form').addEventListener('submit', function(e) {
-    e.preventDefault();
-
-    const formData = new FormData(this);
-    const searchTerms = [];
-    const processedFields = new Set();
-
-    for (const [name, value] of formData.entries()) {
-        if (name.endsWith('_operator') || processedFields.has(name)) continue;
-
-        if (value) {
-            const operator = formData.get(`${name}_operator`) || 'contains';
-            searchTerms.push(`${name}:${operator}:${value}`);
-        }
-        processedFields.add(name);
-    }
-
-    if (searchTerms.length > 0) {
-        const query = searchTerms.join(',');
-        window.location.href = `${window.location.pathname}?q=${encodeURIComponent(query)}`;
-    } else {
-        window.location.href = window.location.pathname;
-    }
-});
-</script>
 
 <div class="filters">
     <h3>Filter by:</h3>
@@ -50,19 +21,6 @@ document.getElementById('search-form').addEventListener('submit', function(e) {
     </ul>
 </div>
 
-{% if search.active_search %}
-    <div class="active-search">
-        <h4>Active Search:</h4>
-        <ul>
-        {% for field, value, operator in search.active_search %}
-            <li>
-                {{ field.display_text }}: {{ operator }} "{{ value }}"
-                <a href="{{ view.get_search_url }}">Clear</a>
-            </li>
-        {% endfor %}
-        </ul>
-    </div>
-{% endif %}
 
 {% for post in object_list %}
     <article>

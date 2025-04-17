@@ -33,6 +33,7 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
 
     Provides a simple search form with exact match filtering on specified fields.
     """
+    _sequence = -200
 
     def __init__(self, view: ViewT, config: "BasicSearchConfig") -> None:
         super().__init__(view)
