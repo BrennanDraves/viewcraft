@@ -1,4 +1,8 @@
+import binascii
 from typing import TYPE_CHECKING, Any, Dict, Optional
+import json
+import base64
+from urllib.parse import unquote, quote
 
 from django import forms
 from django.db.models import Q, QuerySet
@@ -29,12 +33,12 @@ class SearchForm(forms.Form):
 
 class BasicSearchComponent(Component[ViewT], URLMixin):
     """
-    Search component that uses a single encoded query parameter for cleaner URLs.
+    Search component that uses a base64 encoded JSON query parameter for cleaner URLs.
 
-    This component handles search queries in the format:
-    ?q=field1:value1,field2:value2
+    This component handles search queries by encoding them as base64 strings:
+    ?q=eyJ0aXRsZSI6IlRlc3QiLCJjYXRlZ29yeSI6IlRlY2hub2xvZ3kifQ==
 
-    It requires a small JavaScript snippet to be included in the template
+    It requires the included JavaScript snippet to be included in the template
     to encode form fields before submission.
     """
     _sequence = -200
@@ -55,7 +59,7 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
         # Build a Q object for filtering
         filter_q = Q()
         for field, value in search_params.items():
-            if value:  # Only add non-empty values
+            if value and field in self.config.fields:  # Only add non-empty values for valid fields
                 filter_q &= Q(**{field: value})
 
         if filter_q:
@@ -68,32 +72,35 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
         context['search_param_name'] = self.config.param_name
         return context
 
-    def _parse_encoded_query(self) -> Dict[str, Any]:
-        """Parse an encoded search query into parameters.
-
-        Format: field1:value1,field2:value2
-        """
+    def _decode_base64_query(self) -> Dict[str, Any]:
+        """Decode a base64 encoded search query into parameters."""
         params: Dict[str, Any] = {}
         encoded_query = self._view.request.GET.get(self.config.param_name, '')
 
         if not encoded_query:
             return params
 
-        for part in encoded_query.split(','):
-            if ':' not in part:
-                continue
+        try:
+            # First handle URL encoding of the base64 string
+            encoded_query = encoded_query.replace('%3D', '=')
+            # Decode from base64 and parse as JSON
+            decoded = base64.urlsafe_b64decode(encoded_query).decode('utf-8')
+            unquoted = unquote(decoded)  # Handle URL encoding
+            params = json.loads(unquoted)
 
-            field, value = part.split(':', 1)
-            if field in self.config.fields:
-                params[field] = value
+            # Filter to only include valid fields
+            params = {k: v for k, v in params.items() if k in self.config.fields}
+        except (ValueError, json.JSONDecodeError, binascii.Error):
+            # If decoding fails, fall back to empty params
+            return {}
 
         return params
 
     def _get_search_form(self) -> SearchForm:
-        """Get or create the search form with values from encoded query."""
+        """Get or create the search form with values from decoded query."""
         if self._search_form is None:
             # Get values from encoded query
-            form_data = self._parse_encoded_query()
+            form_data = self._get_search_params()
 
             # Create form with fields from config
             self._search_form = SearchForm(
@@ -106,18 +113,22 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
     def _get_search_params(self) -> Dict[str, Any]:
         """Get search parameters from the encoded query."""
         if self._search_params is None:
-            self._search_params = self._parse_encoded_query()
+            self._search_params = self._decode_base64_query()
         return self._search_params
 
     def get_encoded_search_url(self, params: Dict[str, Any]) -> str:
-        """Generate a URL with encoded search parameters."""
-        parts = []
-        for field, value in params.items():
-            if value and field in self.config.fields:
-                parts.append(f"{field}:{value}")
+        """Generate a URL with base64 encoded search parameters."""
+        # Filter out empty values and invalid fields
+        filtered_params = {
+            k: v for k, v in params.items()
+            if v and k in self.config.fields
+        }
 
-        if not parts:
+        if not filtered_params:
             return self.get_url_with_params({self.config.param_name: None})
 
-        encoded = ",".join(parts)
+        # Convert to JSON and then encode as URL-safe base64
+        json_params = json.dumps(filtered_params)
+        encoded = base64.urlsafe_b64encode(json_params.encode('utf-8')).decode('utf-8')
+
         return self.get_url_with_params({self.config.param_name: encoded})

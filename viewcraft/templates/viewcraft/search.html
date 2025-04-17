@@ -1,4 +1,4 @@
-<div class=""search">
+<div class="search">
     <form method="get" class="viewcraft-search-form">
         {{ search_form.as_p }}
         <button type="submit">Search</button>
@@ -16,12 +16,12 @@
 
               // Get all form fields
               const formData = new FormData(form);
-              const searchParams = [];
+              const searchParams = {};
 
-              // Build encoded search string
+              // Build search params object
               for (const [field, value] of formData.entries()) {
                   if (value.trim()) {
-                      searchParams.push(`${field}:${encodeURIComponent(value.trim())}`);
+                      searchParams[field] = value.trim();
                   }
               }
 
@@ -29,9 +29,16 @@
               let url = form.getAttribute('action') || window.location.pathname;
               const queryParam = '{{ search_param_name }}';
 
-              if (searchParams.length > 0) {
-                  const searchQuery = searchParams.join(',');
-                  url += `?${queryParam}=${searchQuery}`;
+              // Check if there are any search parameters
+              if (Object.keys(searchParams).length > 0) {
+                  // Convert to JSON and then Base64 encode (URL-safe version)
+                  const jsonParams = JSON.stringify(searchParams);
+                  // Use the built-in btoa function but make the result URL-safe
+                  // Note: encodeURIComponent isn't needed here since URLSearchParams will handle it
+                  let encodedParams = btoa(jsonParams);
+                  // Make base64 URL-safe by replacing + with - and / with _
+                  encodedParams = encodedParams.replace(/\+/g, '-').replace(/\//g, '_');
+                  url += `?${queryParam}=${encodedParams}`;
               }
 
               // Navigate to the URL (causing page reload)
