@@ -6,7 +6,7 @@ from viewcraft.components.pagination import (
     PaginationConfig,
     PaginationComponent,
     InvalidPageError,
-    ConfigurationError
+    PaginationConfigurationError
 )
 
 @pytest.fixture
@@ -19,13 +19,13 @@ def paginated_view(basic_view_class, rf):
 
 def test_config_validation():
     """Test configuration validation."""
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(PaginationConfigurationError):
         PaginationConfig(per_page=0)
 
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(PaginationConfigurationError):
         PaginationConfig(max_pages=0)
 
-    with pytest.raises(ConfigurationError):
+    with pytest.raises(PaginationConfigurationError):
         PaginationConfig(visible_pages=0)
 
 def test_basic_pagination(paginated_view, blog_posts):

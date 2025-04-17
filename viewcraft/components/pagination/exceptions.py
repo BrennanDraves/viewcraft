@@ -15,6 +15,6 @@ class InvalidPageError(PaginationError, InvalidPage):
     """Invalid page number requested."""
     pass
 
-class ConfigurationError(PaginationError):
+class PaginationConfigurationError(PaginationError):
     """Invalid pagination configuration."""
     pass
