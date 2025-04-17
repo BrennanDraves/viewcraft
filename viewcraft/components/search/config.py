@@ -15,7 +15,7 @@ class BasicSearchConfig(ComponentConfig):
     """Simple configuration for basic search component."""
     model: Optional[Type[models.Model]] = None
     fields: List[str] = field(default_factory=list)
-    param_name: str = 'search'
+    param_name: str = 'q'
 
     def __post_init__(self) -> None:
         """Validate configuration."""

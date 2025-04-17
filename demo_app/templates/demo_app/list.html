@@ -1,17 +1,6 @@
 {% load static %}
 
-<div class="search">
-    <h3>Search:</h3>
-    <form method="get" action="">
-        {% for field in search_form %}
-            <div class="form-group">
-                <label for="{{ field.id_for_label }}">{{ field.label }}: </label>
-                {{ field }}
-            </div>
-        {% endfor %}
-        <button type="submit">Search</button>
-    </form>
-</div>
+{% include "viewcraft/search.html" %}
 
 <div class="filters">
     <h3>Filter by:</h3>

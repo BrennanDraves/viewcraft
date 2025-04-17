@@ -49,7 +49,7 @@ def test_search_config_validation():
 
 
 def test_basic_search_filtering(search_view_class, rf, blog_posts, user):
-    """Test basic search filtering."""
+    """Test basic search filtering with encoded query."""
     # Create a blog post with a specific title for testing
     test_title = "TEST_UNIQUE_TITLE"
     BlogPost.objects.create(
@@ -57,12 +57,12 @@ def test_basic_search_filtering(search_view_class, rf, blog_posts, user):
         slug="test-slug",
         body="Test body",
         status="published",
-        author=user  # Add author to fix IntegrityError
+        author=user
     )
 
-    # Test exact match on title
+    # Test with encoded query format
     view = search_view_class()
-    view.setup(rf.get(f'/?title={test_title}'))
+    view.setup(rf.get(f'/?q=title:{test_title}'))
     queryset = view.get_queryset()
 
     assert queryset.count() == 1
@@ -75,10 +75,11 @@ def test_search_form_in_context(search_view):
 
     assert 'search_form' in context
     assert hasattr(context['search_form'], 'fields')
+    assert 'search_param_name' in context
 
 
 def test_multiple_field_search(search_view_class, rf, blog_posts, user):
-    """Test search with multiple fields."""
+    """Test search with multiple fields in encoded format."""
     # Create a specific post for testing
     BlogPost.objects.create(
         title="Multiple Field Test",
@@ -86,12 +87,12 @@ def test_multiple_field_search(search_view_class, rf, blog_posts, user):
         body="Special test content",
         status="published",
         category="Test Category",
-        author=user  # Add author to fix IntegrityError
+        author=user
     )
 
-    # Search with multiple parameters
+    # Search with multiple parameters in encoded format
     view = search_view_class()
-    view.setup(rf.get('/?title=Multiple Field Test&status=published'))
+    view.setup(rf.get('/?q=title:Multiple Field Test,status:published'))
     queryset = view.get_queryset()
 
     assert queryset.count() == 1
@@ -103,7 +104,7 @@ def test_multiple_field_search(search_view_class, rf, blog_posts, user):
 def test_no_results(search_view_class, rf, blog_posts):
     """Test search with no matching results."""
     view = search_view_class()
-    view.setup(rf.get('/?title=NonExistentTitle'))
+    view.setup(rf.get('/?q=title:NonExistentTitle'))
     queryset = view.get_queryset()
 
     assert queryset.count() == 0
@@ -114,8 +115,57 @@ def test_empty_search(search_view_class, rf, blog_posts):
     total_count = BlogPost.objects.count()
 
     view = search_view_class()
-    view.setup(rf.get('/?title='))
+    view.setup(rf.get('/?q='))
     queryset = view.get_queryset()
 
     # Should return all posts when search is empty
     assert queryset.count() == total_count
+
+
+def test_malformed_query(search_view_class, rf, blog_posts):
+    """Test handling of malformed query strings."""
+    total_count = BlogPost.objects.count()
+
+    # Test missing colon in parameter
+    view = search_view_class()
+    view.setup(rf.get('/?q=titleNoColon'))
+    queryset = view.get_queryset()
+    assert queryset.count() == total_count  # Should ignore malformed parts
+
+    # Test with invalid field name
+    view = search_view_class()
+    view.setup(rf.get('/?q=invalid_field:value'))
+    queryset = view.get_queryset()
+    assert queryset.count() == total_count  # Should ignore invalid fields
+
+
+def test_url_generation(search_view_class, rf):
+    """Test generation of encoded search URLs."""
+    view = search_view_class()
+    view.setup(rf.get('/'))
+    component = view._initialized_components[0]
+
+    # Test URL generation with single parameter
+    url = component.get_encoded_search_url({'title': 'Test'})
+    assert 'q=title%3ATest' in url  # Check for encoded colon (%3A)
+
+    # Test URL generation with multiple parameters
+    url = component.get_encoded_search_url({'title': 'Test', 'status': 'published'})
+    assert 'q=' in url
+    assert 'title%3ATest' in url  # Check for encoded colon
+    assert 'status%3Apublished' in url  # Check for encoded colon
+
+    # Test URL generation with empty parameters
+    url = component.get_encoded_search_url({})
+    assert 'q=' not in url  # Should remove parameter entirely if empty
+
+
+def test_form_data_from_encoded_query(search_view_class, rf):
+    """Test that form is populated correctly from encoded query."""
+    view = search_view_class()
+    view.setup(rf.get('/?q=title:Test Title,status:published'))
+    view.object_list = BlogPost.objects.all()
+
+    form = view.get_context_data()['search_form']
+    assert form.data.get('title') == 'Test Title'
+    assert form.data.get('status') == 'published'
