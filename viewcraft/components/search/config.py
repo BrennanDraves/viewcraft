@@ -8,40 +8,71 @@ from viewcraft.types import ViewT
 
 from ..config import ComponentConfig
 from .component import BasicSearchComponent
+from .spec import SearchSpec
 
 
 @dataclass
 class BasicSearchConfig(ComponentConfig):
-    """Simple configuration for basic search component."""
-    model: Optional[Type[models.Model]] = None
-    fields: List[str] = field(default_factory=list)
+    """
+    Configuration for enhanced search component with field-specific lookups.
+
+    Attributes:
+        specs: List of search specifications
+        param_name: URL parameter name for the encoded search query
+        model: Optional model to auto-generate specs from
+        combine_method: How to combine conditions ('OR' or 'AND')
+    """
+    specs: List[SearchSpec] = field(default_factory=list)
     param_name: str = 'q'
+    model: Optional[Type[models.Model]] = None
+    combine_method: str = 'OR'  # 'OR' or 'AND'
 
     def __post_init__(self) -> None:
-        """Validate configuration."""
-        if not self.model and not self.fields:
-            raise ConfigurationError("Either model or fields must be provided")
+        """
+        Validate configuration and auto-generate specs from model if needed.
 
-        # If we have a model but no fields, we'll use all text fields from the model
-        if self.model and not self.fields:
-            self.fields = self._get_searchable_fields()
+        Raises:
+            ConfigurationError: If configuration is invalid
+        """
+        if not self.specs and not self.model:
+            raise ConfigurationError("Either specs or model must be provided")
 
-    def _get_searchable_fields(self) -> List[str]:
-        """Get all searchable (text) fields from the model."""
+        # Validate combine_method
+        if self.combine_method not in ('OR', 'AND'):
+            raise ConfigurationError("combine_method must be 'OR' or 'AND'")
+
+        # Auto-generate specs from model if not provided
+        if not self.specs and self.model:
+            self._auto_generate_specs()
+
+    def _auto_generate_specs(self) -> None:
+        """
+        Auto-generate search specs from model fields.
+
+        Creates a spec with icontains lookup for each text field.
+        """
         if not self.model:
-            return []
+            return
 
-        fields = []
         for f in self.model._meta.fields:
             # For now, only include CharField and TextField
             if isinstance(f, (models.CharField, models.TextField)):
-                fields.append(f.name)
-
-        return fields
+                self.specs.append(SearchSpec(f.name, 'icontains'))
 
     def build_component(self, view: ViewT) -> BasicSearchComponent:
-        """Create a search component from this configuration."""
-        if not self.fields:
+        """
+        Create a search component instance from this configuration.
+
+        Args:
+            view: The view instance
+
+        Returns:
+            SearchComponent: Initialized search component
+
+        Raises:
+            ConfigurationError: If no searchable specs are available
+        """
+        if not self.specs:
             raise ConfigurationError("No searchable fields available")
 
         return BasicSearchComponent(view, self)

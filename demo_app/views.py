@@ -1,7 +1,7 @@
 from django.views.generic import ListView
 
 from demo_app.models import BlogPost
-from viewcraft import ComponentMixin, PaginationConfig, FilterConfig, BasicSearchConfig
+from viewcraft import ComponentMixin, PaginationConfig, FilterConfig, BasicSearchConfig, SearchSpec
 
 class BlogListView(ComponentMixin, ListView):
     model = BlogPost
@@ -18,7 +18,8 @@ class BlogListView(ComponentMixin, ListView):
                 'category': ['Technology', 'Travel', 'Food', 'Science']
             }
         ),
-        BasicSearchConfig(
-            model=BlogPost
-    )
+        BasicSearchConfig(specs=[
+            SearchSpec('title', 'icontains'),
+            SearchSpec('body', 'icontains')
+        ]    )
     ]
