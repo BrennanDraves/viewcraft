@@ -19,7 +19,13 @@ class BlogListView(ComponentMixin, ListView):
             }
         ),
         BasicSearchConfig(specs=[
-            SearchSpec('title', 'icontains'),
-            SearchSpec('body', 'icontains')
-        ]    )
+            SearchSpec(
+                field_name='title',
+                lookup_types=['icontains', 'contains', 'exact', 'startswith']
+            ),
+            SearchSpec(
+                field_name='body',
+                lookup_types=['icontains', 'contains', 'exact']
+            )
+        ])
     ]

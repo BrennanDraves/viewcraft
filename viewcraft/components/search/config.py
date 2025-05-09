@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Optional, Type
+from typing import Dict, List, Optional, Type
 
 from django.db import models
 
@@ -21,11 +21,20 @@ class BasicSearchConfig(ComponentConfig):
         param_name: URL parameter name for the encoded search query
         model: Optional model to auto-generate specs from
         combine_method: How to combine conditions ('OR' or 'AND')
+        default_lookup_types: Default lookup types to use for auto-generated specs
     """
     specs: List[SearchSpec] = field(default_factory=list)
     param_name: str = 'q'
     model: Optional[Type[models.Model]] = None
     combine_method: str = 'OR'  # 'OR' or 'AND'
+    default_lookup_types: Dict[str, List[str]] = field(default_factory=lambda: {
+        'CharField': ['contains', 'icontains', 'exact'],
+        'TextField': ['contains', 'icontains', 'exact'],
+        'IntegerField': ['exact', 'gt', 'lt', 'gte', 'lte'],
+        'DateField': ['exact', 'gt', 'lt', 'gte', 'lte'],
+        'BooleanField': ['exact'],
+        'default': ['contains', 'exact']
+    })
 
     def __post_init__(self) -> None:
         """
@@ -49,15 +58,27 @@ class BasicSearchConfig(ComponentConfig):
         """
         Auto-generate search specs from model fields.
 
-        Creates a spec with icontains lookup for each text field.
+        Creates a spec with appropriate lookup types for each field type.
         """
         if not self.model:
             return
 
         for f in self.model._meta.fields:
-            # For now, only include CharField and TextField
-            if isinstance(f, (models.CharField, models.TextField)):
-                self.specs.append(SearchSpec(f.name, 'icontains'))
+            field_type = f.__class__.__name__
+
+            # Determine which lookup types to use for this field
+            lookup_types = self.default_lookup_types.get(
+                field_type,
+                self.default_lookup_types['default']
+            )
+
+            # Create spec for supported field types
+            if field_type in self.default_lookup_types:
+                self.specs.append(SearchSpec(
+                    field_name=f.name,
+                    lookup_types=lookup_types,
+                    current_lookup_type=lookup_types[0] if lookup_types else None
+                ))
 
     def build_component(self, view: ViewT) -> BasicSearchComponent:
         """

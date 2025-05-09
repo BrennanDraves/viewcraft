@@ -27,22 +27,25 @@ class SearchForm(forms.Form):
 
         # Add fields based on search specs
         for spec in specs:
-            field_label = spec.field.replace('_', ' ').title()
+            field_label = spec.field_name.replace('_', ' ').title()
 
-            # Create appropriate field type based on lookup
-            if spec.lookup_type in ('exact', 'in'):
-                # For exact matches, could potentially use select fields
-                self.fields[spec.field] = forms.CharField(
-                    required=False,
-                    label=field_label
-                )
-            else:
-                # For text search fields
-                self.fields[spec.field] = forms.CharField(
-                    required=False,
-                    label=field_label
-                )
+            # Create the main search field
+            self.fields[spec.field_name] = forms.CharField(
+                required=False,
+                label=field_label
+            )
 
+            # Add lookup type selection field if multiple types are available
+            if len(spec.lookup_types) > 1:
+                lookup_choices = [
+                    (lt, lt.replace('_', ' ').title()) for lt in spec.lookup_types
+                ]
+                self.fields[f"{spec.field_name}_lookup"] = forms.ChoiceField(
+                    choices=lookup_choices,
+                    required=False,
+                    initial=spec.current_lookup_type,
+                    label=f"{field_label} Match Type"
+                )
 
 class BasicSearchComponent(Component[ViewT], URLMixin):
     """
@@ -81,11 +84,19 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
         if not search_params:
             return queryset
 
+        # Process lookup type selections first
+        for key, value in search_params.items():
+            if key.endswith('_lookup'):
+                field_name = key.replace('_lookup', '')
+                for spec in self.config.specs:
+                    if spec.field_name == field_name and value in spec.lookup_types:
+                        spec.set_lookup_type(value)
+
         # Build a complex Q object for all specified search conditions
         filter_q = None
 
         for spec in self.config.specs:
-            value = search_params.get(spec.field)
+            value = search_params.get(spec.field_name)
             if not value:
                 continue  # Skip empty values
 
@@ -124,7 +135,7 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
         Decode a base64 encoded search query into parameters.
 
         Returns:
-            Dict[str, Any]: Decoded search parameters
+            Dict[str, Any]: Decoded search parameters including lookup types
         """
         params: Dict[str, Any] = {}
         encoded_query = self._view.request.GET.get(self.config.param_name, '')
@@ -138,11 +149,25 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
             # Decode from base64 and parse as JSON
             decoded = base64.urlsafe_b64decode(encoded_query).decode('utf-8')
             unquoted = unquote(decoded)  # Handle URL encoding
-            params = json.loads(unquoted)
+            query_data = json.loads(unquoted)
 
-            # Filter to only include valid fields
-            field_names = [spec.field for spec in self.config.specs]
-            params = {k: v for k, v in params.items() if k in field_names}
+            # Process parameters and lookup types
+            field_names = [spec.field_name for spec in self.config.specs]
+
+            # Extract values and lookup types
+            for k, v in query_data.items():
+                # Regular search field value
+                if k in field_names:
+                    params[k] = v
+                # Lookup type parameter
+                elif k.endswith('_lookup'):
+                    field_name = k.replace('_lookup', '')
+                    if field_name in field_names:
+                        params[k] = v  # Include it in the returned params
+                        # Find the corresponding spec and update its current lookup type
+                        for spec in self.config.specs:
+                            if spec.field_name == field_name and v in spec.lookup_types:
+                                spec.current_lookup_type = v
         except Exception:
             # If decoding fails for any reason, fall back to empty params
             return {}
@@ -160,9 +185,24 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
             # Get values from encoded query
             form_data = self._get_search_params()
 
+            # Create a dictionary for the form's initial data
+            initial_data = {}
+
+            if form_data:
+                # Copy the regular search values
+                for key, value in form_data.items():
+                    initial_data[key] = value
+
+                # Add lookup type selections based on the current state of specs
+                for spec in self.config.specs:
+                    lookup_field = f"{spec.field_name}_lookup"
+                    # Only set the lookup field's initial value if not already in
+                    if lookup_field not in initial_data and spec.current_lookup_type:
+                        initial_data[lookup_field] = spec.current_lookup_type
+
             # Create form with specs from config
             self._search_form = SearchForm(
-                data=form_data if form_data else None,
+                data=initial_data if initial_data else None,
                 specs=self.config.specs
             )
 
@@ -181,7 +221,7 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
 
     def get_encoded_search_url(self, params: Dict[str, Any]) -> str:
         """
-        Generate a URL with base64 encoded search parameters.
+        Generate a URL with base64 encoded search parameters including lookup types.
 
         Args:
             params: Search parameters to encode
@@ -190,11 +230,26 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
             str: URL with encoded search parameters
         """
         # Filter out empty values and invalid fields
-        field_names = [spec.field for spec in self.config.specs]
-        filtered_params = {
-            k: v for k, v in params.items()
-            if v and k in field_names
-        }
+        field_names = [spec.field_name for spec in self.config.specs]
+        filtered_params = {}
+
+        # Process regular field values
+        for k, v in params.items():
+            if not v:
+                continue
+
+            # Handle regular field values
+            if k in field_names:
+                filtered_params[k] = v
+            # Handle lookup type selections
+            elif k.endswith('_lookup') and k.replace('_lookup', '') in field_names:
+                field_name = k.replace('_lookup', '')
+                # Find the corresponding spec and validate the lookup type
+                for spec in self.config.specs:
+                    if spec.field_name == field_name and v in spec.lookup_types:
+                        filtered_params[k] = v
+                        # Update the current lookup type in the spec
+                        spec.set_lookup_type(v)
 
         if not filtered_params:
             return self.get_url_with_params({self.config.param_name: None})
