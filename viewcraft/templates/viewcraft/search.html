@@ -1,6 +1,20 @@
 <div class="search">
     <form method="get" class="viewcraft-search-form">
-        {{ search_form.as_p }}
+        {% for field in search_form %}
+            <div class="field-wrapper">
+                {% if field.name|slice:"-4:" != "_end" %}
+                    <div class="field-label">{{ field.label_tag }}</div>
+                    <div class="field-input">{{ field }}</div>
+                {% else %}
+                    {% with base_field_name=field.name|slice:":-4" %}
+                        <div class="date-range-end-container" data-for="{{ base_field_name }}" style="display: none;">
+                            <div class="field-label">{{ base_field_name|capfirst }} End</div>
+                            <div class="field-input">{{ field }}</div>
+                        </div>
+                    {% endwith %}
+                {% endif %}
+            </div>
+        {% endfor %}
         <button type="submit">Search</button>
     </form>
 </div>
@@ -11,6 +25,33 @@
       const searchForms = document.querySelectorAll('form.viewcraft-search-form');
 
       searchForms.forEach(function(form) {
+          // Handle lookup type changes
+          const lookupSelects = form.querySelectorAll('select[name$="_lookup"]');
+          lookupSelects.forEach(function(select) {
+              // Extract the field name from the select name
+              const fieldName = select.name.replace('_lookup', '');
+              const endContainer = form.querySelector(`.date-range-end-container[data-for="${fieldName}"]`);
+
+              // Initial state setup - show end date field if range is selected
+              if (endContainer && select.value === 'range') {
+                  endContainer.style.display = 'block';
+              }
+
+              // Listen for changes to the lookup type
+              select.addEventListener('change', function() {
+                  if (endContainer) {
+                      endContainer.style.display = (this.value === 'range') ? 'block' : 'none';
+
+                      // Clear the end field value if not using range
+                      if (this.value !== 'range') {
+                          const endField = endContainer.querySelector('input');
+                          if (endField) endField.value = '';
+                      }
+                  }
+              });
+          });
+
+          // Existing form submission code...
           form.addEventListener('submit', function(e) {
               e.preventDefault();
 

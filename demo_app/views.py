@@ -26,6 +26,11 @@ class BlogListView(ComponentMixin, ListView):
             SearchSpec(
                 field_name='body',
                 lookup_types=['icontains', 'contains', 'exact']
+            ),
+            SearchSpec(
+                field_name='published_at',
+                lookup_types=['exact', 'gt', 'lt', 'range'],
+                field_type='DateField'  # Specify this is a DateField
             )
         ])
     ]

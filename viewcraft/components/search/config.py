@@ -74,10 +74,15 @@ class BasicSearchConfig(ComponentConfig):
 
             # Create spec for supported field types
             if field_type in self.default_lookup_types:
+                # Add 'range' lookup type for DateField
+                if field_type == 'DateField' and 'range' not in lookup_types:
+                    lookup_types.append('range')
+
                 self.specs.append(SearchSpec(
                     field_name=f.name,
                     lookup_types=lookup_types,
-                    current_lookup_type=lookup_types[0] if lookup_types else None
+                    current_lookup_type=lookup_types[0] if lookup_types else None,
+                    field_type=field_type
                 ))
 
     def build_component(self, view: ViewT) -> BasicSearchComponent:

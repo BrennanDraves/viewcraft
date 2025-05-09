@@ -29,11 +29,32 @@ class SearchForm(forms.Form):
         for spec in specs:
             field_label = spec.field_name.replace('_', ' ').title()
 
-            # Create the main search field
-            self.fields[spec.field_name] = forms.CharField(
-                required=False,
-                label=field_label
-            )
+            # Create appropriate field based on field_type
+            if spec.field_type == "DateField":
+                self.fields[spec.field_name] = forms.DateField(
+                    required=False,
+                    label=field_label,
+                    widget=forms.DateInput(attrs={'type': 'date'})
+                )
+
+                # Add a second date field for range searches
+                if 'range' in spec.lookup_types:
+                    # Create a container div for the end date with conditional display
+                    self.fields[f"{spec.field_name}_end"] = forms.DateField(
+                        required=False,
+                        label="",  # Empty label - we'll handle display in a wrapper div
+                        widget=forms.DateInput(attrs={
+                            'type': 'date',
+                            'class': 'date-range-end',
+                            'data-field': spec.field_name,
+                        })
+                    )
+            else:
+                # Default to CharField for other field types
+                self.fields[spec.field_name] = forms.CharField(
+                    required=False,
+                    label=field_label
+                )
 
             # Add lookup type selection field if multiple types are available
             if len(spec.lookup_types) > 1:
@@ -46,6 +67,7 @@ class SearchForm(forms.Form):
                     initial=spec.current_lookup_type,
                     label=f"{field_label} Match Type"
                 )
+
 
 class BasicSearchComponent(Component[ViewT], URLMixin):
     """
@@ -96,10 +118,31 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
         filter_q = None
 
         for spec in self.config.specs:
+            # Skip if no value for this field
             value = search_params.get(spec.field_name)
             if not value:
-                continue  # Skip empty values
+                continue
 
+            # Special handling for date ranges
+            if spec.is_date_range():
+                # Get end date from parameters
+                end_value = search_params.get(f"{spec.field_name}_end")
+                if end_value:
+                    # Create a range condition
+                    range_q = Q(**{f"{spec.field_name}__gte": value}) & \
+                              Q(**{f"{spec.field_name}__lte": end_value})
+
+                    if filter_q is None:
+                        filter_q = range_q
+                    else:
+                        # Combine based on the specified method
+                        if self.config.combine_method == 'OR':
+                            filter_q |= range_q
+                        else:  # 'AND'
+                            filter_q &= range_q
+                    continue
+
+            # Standard field handling
             lookup_param = {spec.get_lookup_string(): value}
 
             if filter_q is None:
