@@ -72,7 +72,7 @@ select = [
     "B",  # flake8-bugbear
     "I",  # isort
 ]
-ignore = ["D203", "D212"]  # Ignore some docstring conflicts
+ignore = ["D203", "D212", "E712"]  # Ignore some docstring conflicts, plus True False comparison problem
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["D104", "F401"]  # D104: Missing docstring in public package, F401: Unused import

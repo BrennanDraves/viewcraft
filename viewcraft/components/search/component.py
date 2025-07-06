@@ -15,60 +15,6 @@ if TYPE_CHECKING:
     from .config import BasicSearchConfig
 
 
-class SearchForm(forms.Form):
-    """
-    Dynamic form for search fields based on SearchSpecs.
-
-    Generates appropriate form fields for each search specification.
-    """
-    def __init__(self, *args, **kwargs):
-        specs = kwargs.pop('specs', [])
-        super().__init__(*args, **kwargs)
-
-        # Add fields based on search specs
-        for spec in specs:
-            field_label = spec.field_name.replace('_', ' ').title()
-
-            # Create appropriate field based on field_type
-            if spec.field_type == "DateField":
-                self.fields[spec.field_name] = forms.DateField(
-                    required=False,
-                    label=field_label,
-                    widget=forms.DateInput(attrs={'type': 'date'})
-                )
-
-                # Add a second date field for range searches
-                if 'range' in spec.lookup_types:
-                    # Create a container div for the end date with conditional display
-                    self.fields[f"{spec.field_name}_end"] = forms.DateField(
-                        required=False,
-                        label="",  # Empty label - we'll handle display in a wrapper div
-                        widget=forms.DateInput(attrs={
-                            'type': 'date',
-                            'class': 'date-range-end',
-                            'data-field': spec.field_name,
-                        })
-                    )
-            else:
-                # Default to CharField for other field types
-                self.fields[spec.field_name] = forms.CharField(
-                    required=False,
-                    label=field_label
-                )
-
-            # Add lookup type selection field if multiple types are available
-            if len(spec.lookup_types) > 1:
-                lookup_choices = [
-                    (lt, lt.replace('_', ' ').title()) for lt in spec.lookup_types
-                ]
-                self.fields[f"{spec.field_name}_lookup"] = forms.ChoiceField(
-                    choices=lookup_choices,
-                    required=False,
-                    initial=spec.current_lookup_type,
-                    label=f"{field_label} Match Type"
-                )
-
-
 class BasicSearchComponent(Component[ViewT], URLMixin):
     """
     Enhanced search component with support for field-specific lookup types.
@@ -88,7 +34,7 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
         """
         super().__init__(view)
         self.config = config
-        self._search_form: Optional[SearchForm] = None
+        self._search_form: Optional[forms.Form] = None
         self._search_params: Optional[Dict[str, Any]] = None
 
     def process_get_queryset(self, queryset: QuerySet) -> QuerySet:
@@ -123,9 +69,9 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
             if not value:
                 continue
 
-            # Special handling for date ranges
-            if spec.is_date_range():
-                # Get end date from parameters
+            # Special handling for ranges
+            if spec.supports_range():
+                # Get end value from parameters
                 end_value = search_params.get(f"{spec.field_name}_end")
                 if end_value:
                     # Create a range condition
@@ -211,43 +157,176 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
                         for spec in self.config.specs:
                             if spec.field_name == field_name and v in spec.lookup_types:
                                 spec.current_lookup_type = v
+                # Range end value
+                elif k.endswith('_end'):
+                    field_name = k.replace('_end', '')
+                    if field_name in field_names:
+                        params[k] = v
         except Exception:
             # If decoding fails for any reason, fall back to empty params
             return {}
 
         return params
 
-    def _get_search_form(self) -> SearchForm:
+    def _get_search_form(self) -> forms.Form:
         """
         Get or create the search form with values from decoded query.
 
         Returns:
-            SearchForm: Initialized search form
+            forms.Form: Initialized search form with appropriate fields
         """
         if self._search_form is None:
             # Get values from encoded query
             form_data = self._get_search_params()
 
-            # Create a dictionary for the form's initial data
-            initial_data = {}
+            # Create a dictionary of fields dynamically
+            fields = {}
 
-            if form_data:
-                # Copy the regular search values
-                for key, value in form_data.items():
-                    initial_data[key] = value
+            # Generate fields for each search spec
+            for spec in self.config.specs:
+                field_name = spec.field_name
 
-                # Add lookup type selections based on the current state of specs
-                for spec in self.config.specs:
-                    lookup_field = f"{spec.field_name}_lookup"
-                    # Only set the lookup field's initial value if not already in
-                    if lookup_field not in initial_data and spec.current_lookup_type:
-                        initial_data[lookup_field] = spec.current_lookup_type
+                # Get the model field if we have a model
+                if self.config.model:
+                    try:
+                        model_field = self.config.model._meta.get_field(field_name)
 
-            # Create form with specs from config
-            self._search_form = SearchForm(
-                data=initial_data if initial_data else None,
-                specs=self.config.specs
-            )
+                        # Special handling for fields with choices
+                        if hasattr(model_field, 'choices') and model_field.choices:
+                            choices = [('', '---------')] + list(model_field.choices)
+                            form_field: Any = forms.ChoiceField(
+                                choices=choices,
+                                required=False,
+                                label=field_name.replace('_', ' ').title()
+                            )
+                        else:
+                            # Let Django create the appropriate form field
+                            form_field = model_field.formfield(  # type: ignore
+                                required=False,
+                                label=field_name.replace('_', ' ').title()
+                            )
+
+                            # Add appropriate widget attributes based on field type
+                            if isinstance(form_field, forms.DateField):
+                                form_field.widget.attrs.update({'type': 'date'})
+                            elif isinstance(form_field, (
+                                forms.IntegerField, forms.DecimalField, forms.FloatField
+                            )):
+                                form_field.widget.attrs.update({'type': 'number'})
+
+                        # Store the field
+                        fields[field_name] = form_field
+
+                        # If this field supports ranges, add a second field for the end
+                        if spec.supports_range():
+                            # Check if the field has a formfield method
+                            if hasattr(model_field, 'formfield'):
+                                end_field = model_field.formfield(
+                                    required=False,
+                                    label="",  # Empty label - template will handle
+                                )
+                            else:
+                                # Fallback for fields without formfield method
+                                end_field = forms.CharField(
+                                    required=False,
+                                    label=""
+                                )
+
+                            # Add appropriate widget attributes
+                            if isinstance(end_field, forms.DateField):
+                                end_field.widget.attrs.update({
+                                    'type': 'date',
+                                    'class': 'range-end',
+                                    'data-field': field_name
+                                })
+                            elif isinstance(end_field, (
+                                forms.IntegerField, forms.DecimalField, forms.FloatField
+                            )):
+                                end_field.widget.attrs.update({
+                                    'type': 'number',
+                                    'class': 'range-end',
+                                    'data-field': field_name
+                                })
+
+                            fields[f"{field_name}_end"] = end_field
+
+                    except Exception:
+                        # Fallback to basic CharField if model field lookup fails
+                        fields[field_name] = forms.CharField(
+                            required=False,
+                            label=field_name.replace('_', ' ').title()
+                        )
+                else:
+                    # No model available, create basic field based on field_type
+                    if spec.field_type == 'BooleanField':
+                        fields[field_name] = forms.BooleanField(
+                            required=False,
+                            label=field_name.replace('_', ' ').title()
+                        )
+                    elif spec.field_type == 'DateField':
+                        fields[field_name] = forms.DateField(
+                            required=False,
+                            label=field_name.replace('_', ' ').title(),
+                            widget=forms.DateInput(attrs={'type': 'date'})
+                        )
+                    elif spec.field_type in (
+                        'IntegerField', 'DecimalField', 'FloatField'
+                    ):
+                        field_class = getattr(forms, spec.field_type)
+                        fields[field_name] = field_class(
+                            required=False,
+                            label=field_name.replace('_', ' ').title(),
+                            widget=forms.NumberInput(attrs={'type': 'number'})
+                        )
+                    else:
+                        fields[field_name] = forms.CharField(
+                            required=False,
+                            label=field_name.replace('_', ' ').title()
+                        )
+
+                    # Add range end field if needed
+                    if spec.supports_range():
+                        if spec.field_type == 'DateField':
+                            fields[f"{field_name}_end"] = forms.DateField(
+                                required=False,
+                                label="",
+                                widget=forms.DateInput(attrs={
+                                    'type': 'date',
+                                    'class': 'range-end',
+                                    'data-field': field_name
+                                })
+                            )
+                        elif spec.field_type in (
+                            'IntegerField', 'DecimalField', 'FloatField'
+                        ):
+                            field_class = getattr(forms, spec.field_type)
+                            fields[f"{field_name}_end"] = field_class(
+                                required=False,
+                                label="",
+                                widget=forms.NumberInput(attrs={
+                                    'type': 'number',
+                                    'class': 'range-end',
+                                    'data-field': field_name
+                                })
+                            )
+
+                # Add lookup type selection if needed
+                if len(spec.lookup_types) > 1:
+                    lookup_choices = [
+                        (lt, lt.replace('_', ' ').title()) for lt in spec.lookup_types
+                    ]
+                    fields[f"{field_name}_lookup"] = forms.ChoiceField(
+                        choices=lookup_choices,
+                        required=False,
+                        initial=spec.current_lookup_type,
+                        label=f"{field_name.replace('_', ' ').title()} Match Type"
+                    )
+
+            # Create a proper form class with our dynamically generated fields
+            FormClass = type('DynamicSearchForm', (forms.Form,), fields)
+
+            # Create form instance with initial data from the encoded query
+            self._search_form = FormClass(data=form_data if form_data else None)
 
         return self._search_form
 
@@ -278,7 +357,7 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
 
         # Process regular field values
         for k, v in params.items():
-            if not v:
+            if not v and v != False:
                 continue
 
             # Handle regular field values
@@ -293,6 +372,18 @@ class BasicSearchComponent(Component[ViewT], URLMixin):
                         filtered_params[k] = v
                         # Update the current lookup type in the spec
                         spec.set_lookup_type(v)
+            # Handle range end values
+            elif k.endswith('_end') and k.replace('_end', '') in field_names:
+                field_name = k.replace('_end', '')
+                # Only include end value if start value exists and this is a
+                # range-supporting field
+                for spec in self.config.specs:
+                    if (
+                        spec.field_name == field_name
+                        and spec.supports_range()
+                        and field_name in params
+                    ):
+                        filtered_params[k] = v
 
         if not filtered_params:
             return self.get_url_with_params({self.config.param_name: None})

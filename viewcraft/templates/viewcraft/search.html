@@ -7,7 +7,7 @@
                     <div class="field-input">{{ field }}</div>
                 {% else %}
                     {% with base_field_name=field.name|slice:":-4" %}
-                        <div class="date-range-end-container" data-for="{{ base_field_name }}" style="display: none;">
+                        <div class="range-end-container" data-for="{{ base_field_name }}" style="display: none;">
                             <div class="field-label">{{ base_field_name|capfirst }} End</div>
                             <div class="field-input">{{ field }}</div>
                         </div>
@@ -30,9 +30,9 @@
           lookupSelects.forEach(function(select) {
               // Extract the field name from the select name
               const fieldName = select.name.replace('_lookup', '');
-              const endContainer = form.querySelector(`.date-range-end-container[data-for="${fieldName}"]`);
+              const endContainer = form.querySelector(`.range-end-container[data-for="${fieldName}"]`);
 
-              // Initial state setup - show end date field if range is selected
+              // Initial state setup - show end field if range is selected
               if (endContainer && select.value === 'range') {
                   endContainer.style.display = 'block';
               }
@@ -51,7 +51,7 @@
               });
           });
 
-          // Existing form submission code...
+          // Form submission handler
           form.addEventListener('submit', function(e) {
               e.preventDefault();
 
@@ -61,8 +61,14 @@
 
               // Build search params object
               for (const [field, value] of formData.entries()) {
-                  if (value.trim()) {
-                      searchParams[field] = value.trim();
+                  // Handle checkbox/boolean fields
+                  if (field && (value === 'on' || value === 'off')) {
+                      // This is likely a checkbox
+                      searchParams[field] = (value === 'on') ? true : false;
+                  }
+                  // Handle all other fields - only include if they have a value
+                  else if (value !== null && value !== undefined && value.toString().trim() !== '') {
+                      searchParams[field] = value.toString().trim();
                   }
               }
 

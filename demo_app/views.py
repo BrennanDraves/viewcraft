@@ -18,19 +18,5 @@ class BlogListView(ComponentMixin, ListView):
                 'category': ['Technology', 'Travel', 'Food', 'Science']
             }
         ),
-        BasicSearchConfig(specs=[
-            SearchSpec(
-                field_name='title',
-                lookup_types=['icontains', 'contains', 'exact', 'startswith']
-            ),
-            SearchSpec(
-                field_name='body',
-                lookup_types=['icontains', 'contains', 'exact']
-            ),
-            SearchSpec(
-                field_name='published_at',
-                lookup_types=['exact', 'gt', 'lt', 'range'],
-                field_type='DateField'  # Specify this is a DateField
-            )
-        ])
+        BasicSearchConfig(model=BlogPost)
     ]

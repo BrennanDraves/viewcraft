@@ -30,9 +30,15 @@ class BasicSearchConfig(ComponentConfig):
     default_lookup_types: Dict[str, List[str]] = field(default_factory=lambda: {
         'CharField': ['contains', 'icontains', 'exact'],
         'TextField': ['contains', 'icontains', 'exact'],
-        'IntegerField': ['exact', 'gt', 'lt', 'gte', 'lte'],
-        'DateField': ['exact', 'gt', 'lt', 'gte', 'lte'],
+        'IntegerField': ['exact', 'gt', 'lt', 'gte', 'lte', 'range'],
+        'FloatField': ['exact', 'gt', 'lt', 'gte', 'lte', 'range'],
+        'DecimalField': ['exact', 'gt', 'lt', 'gte', 'lte', 'range'],
+        'DateField': ['exact', 'gt', 'lt', 'gte', 'lte', 'range'],
+        'DateTimeField': ['exact', 'gt', 'lt', 'gte', 'lte', 'range'],
         'BooleanField': ['exact'],
+        'ForeignKey': ['exact'],
+        'OneToOneField': ['exact'],
+        'ManyToManyField': ['exact'],
         'default': ['contains', 'exact']
     })
 
@@ -66,24 +72,27 @@ class BasicSearchConfig(ComponentConfig):
         for f in self.model._meta.fields:
             field_type = f.__class__.__name__
 
+            # Skip some common fields we don't typically want to search on
+            if f.name in ('id', 'pk', 'created_at', 'updated_at'):
+                continue
+
+            # Skip non-searchable field types
+            if field_type in ('AutoField', 'OneToOneField', 'ManyToManyField'):
+                continue
+
             # Determine which lookup types to use for this field
             lookup_types = self.default_lookup_types.get(
                 field_type,
                 self.default_lookup_types['default']
             )
 
-            # Create spec for supported field types
-            if field_type in self.default_lookup_types:
-                # Add 'range' lookup type for DateField
-                if field_type == 'DateField' and 'range' not in lookup_types:
-                    lookup_types.append('range')
-
-                self.specs.append(SearchSpec(
-                    field_name=f.name,
-                    lookup_types=lookup_types,
-                    current_lookup_type=lookup_types[0] if lookup_types else None,
-                    field_type=field_type
-                ))
+            # Create spec
+            self.specs.append(SearchSpec(
+                field_name=f.name,
+                lookup_types=lookup_types,
+                current_lookup_type=lookup_types[0] if lookup_types else None,
+                field_type=field_type
+            ))
 
     def build_component(self, view: ViewT) -> BasicSearchComponent:
         """
